@@ -1,5 +1,5 @@
 import React, { useRef, useEffect } from 'react';
-import { Search, X, DownloadCloud, Sparkles, Filter } from 'lucide-react';
+import { Search, X, DownloadCloud, Sparkles, Filter, Loader2 } from 'lucide-react';
 
 interface SearchAndFiltersProps {
   searchQuery: string;
@@ -10,6 +10,7 @@ interface SearchAndFiltersProps {
   totalResults: number;
   isOfflineMode: boolean;
   onToggleOfflineOnly: () => void;
+  isSearching?: boolean;
 }
 
 const CATEGORIES = [
@@ -31,6 +32,7 @@ export const SearchAndFilters: React.FC<SearchAndFiltersProps> = ({
   totalResults,
   isOfflineMode,
   onToggleOfflineOnly,
+  isSearching = false,
 }) => {
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -59,7 +61,7 @@ export const SearchAndFilters: React.FC<SearchAndFiltersProps> = ({
           type="text"
           value={searchQuery}
           onChange={(e) => onSearchChange(e.target.value)}
-          placeholder="Search videos, creators, assembly code, architecture, space... (Press / to search)"
+          placeholder="Search YouTube videos and creators... (Press / to search)"
           className={`w-full h-9 pl-10 pr-20 text-xs rounded-lg transition-all outline-none border ${
             isDarkMode
               ? 'bg-[#1e2025] border-white/10 text-neutral-100 placeholder:text-neutral-500 focus:border-rose-500/50 focus:ring-1 focus:ring-rose-500/20'
@@ -68,6 +70,7 @@ export const SearchAndFilters: React.FC<SearchAndFiltersProps> = ({
         />
 
         <div className="absolute right-2.5 flex items-center gap-1.5 text-neutral-400">
+          {isSearching && <Loader2 className="w-3.5 h-3.5 animate-spin" aria-label="Searching YouTube" />}
           {searchQuery ? (
             <button
               type="button"
@@ -117,7 +120,7 @@ export const SearchAndFilters: React.FC<SearchAndFiltersProps> = ({
 
         {/* Total Results Count */}
         <div className="text-[11px] font-mono text-neutral-400 whitespace-nowrap shrink-0 hidden sm:block">
-          {totalResults} {totalResults === 1 ? 'video' : 'videos'}
+          {isSearching ? 'Searching…' : `${totalResults} ${totalResults === 1 ? 'video' : 'videos'}`}
         </div>
       </div>
     </div>

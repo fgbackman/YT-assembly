@@ -103,7 +103,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setIsPlaying(true);
     // Auto-buffer visual
     setBufferedEnd(video.durationSeconds || 500);
-  }, [video.id, video.durationSeconds]);
+    // Live YouTube search results can only play through the official embed
+    if (video.source === 'youtube') setEngine('youtube_embed');
+  }, [video.id, video.durationSeconds, video.source]);
 
   // SponsorBlock auto-skipping simulation
   useEffect(() => {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { CocoaTitlebar } from './components/CocoaTitlebar';
 import { CocoaStatusFooter } from './components/CocoaStatusFooter';
 import { VideoPlayer } from './components/VideoPlayer';
@@ -89,6 +89,49 @@ const DEFAULT_SECTIONS: PageSectionConfig[] = [
     category: 'core',
   },
 ];
+
+
+interface YouTubeSearchResult {
+  youtubeId: string;
+  title: string;
+  channel: string;
+  description: string;
+  duration: string;
+  views: string;
+  publishedDate: string;
+  thumbnailUrl: string;
+}
+
+const parseDurationSeconds = (duration: string) =>
+  duration.split(':').reduce((total, part) => total * 60 + (Number(part) || 0), 0);
+
+const toYouTubeVideo = (r: YouTubeSearchResult): Video => ({
+  id: `yt-${r.youtubeId}`,
+  title: r.title,
+  channel: r.channel,
+  channelAvatar: r.channel.slice(0, 2).toUpperCase() || 'YT',
+  subscribers: '',
+  views: r.views ? `${r.views}${/views?$/i.test(r.views) ? '' : ' views'}` : '',
+  viewCount: 0,
+  publishedDate: r.publishedDate,
+  duration: r.duration,
+  durationSeconds: parseDurationSeconds(r.duration) || 600,
+  description: r.description,
+  category: 'Tech',
+  tags: [],
+  videoUrl: `https://www.youtube.com/watch?v=${r.youtubeId}`,
+  youtubeId: r.youtubeId,
+  thumbnailGradient: 'from-zinc-800 via-neutral-900 to-black',
+  thumbnailUrl: r.thumbnailUrl,
+  source: 'youtube',
+  previewSvgIcon: 'play',
+  resolution: 'YouTube',
+  fps: 30,
+  isLiked: false,
+  likeCount: 0,
+  isOffline: false,
+  sponsorsSegments: [],
+});
 
 export default function App() {
   // Theme state
@@ -230,9 +273,52 @@ export default function App() {
     };
   }, []);
 
+  // Live YouTube search: debounced, cancels stale requests, and memoizes per query
+  const [remoteResults, setRemoteResults] = useState<Video[]>([]);
+  const [isSearching, setIsSearching] = useState<boolean>(false);
+  const searchCacheRef = useRef<Map<string, Video[]>>(new Map());
+
+  useEffect(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (q.length < 2 || isOfflineMode) {
+      setRemoteResults([]);
+      setIsSearching(false);
+      return;
+    }
+
+    const cached = searchCacheRef.current.get(q);
+    if (cached) {
+      setRemoteResults(cached);
+      setIsSearching(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setIsSearching(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`, { signal: controller.signal });
+        const data = await res.json();
+        const mapped: Video[] = (data.results ?? []).map(toYouTubeVideo);
+        searchCacheRef.current.set(q, mapped);
+        setRemoteResults(mapped);
+      } catch (err) {
+        if ((err as Error).name === 'AbortError') return;
+        setRemoteResults([]);
+      }
+      setIsSearching(false);
+    }, 250);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [searchQuery, isOfflineMode]);
+
   // Filtered videos based on search, category, and offline mode
   const filteredVideos = useMemo(() => {
-    return videos.filter((v) => {
+    const terms = searchQuery.toLowerCase().split(/\s+/).filter(Boolean);
+    const local = videos.filter((v) => {
       if (isOfflineMode && !v.isOffline) return false;
       if (selectedCategory === 'Offline Saved' && !v.isOffline) return false;
 
@@ -244,18 +330,20 @@ export default function App() {
         return false;
       }
 
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        const matchesTitle = v.title.toLowerCase().includes(q);
-        const matchesChannel = v.channel.toLowerCase().includes(q);
-        const matchesDesc = v.description.toLowerCase().includes(q);
-        const matchesTags = v.tags.some(t => t.toLowerCase().includes(q));
-        return matchesTitle || matchesChannel || matchesDesc || matchesTags;
+      if (terms.length) {
+        // Every word must appear somewhere (title, channel, description or tags)
+        const haystack = `${v.title} ${v.channel} ${v.description} ${v.tags.join(' ')}`.toLowerCase();
+        return terms.every(t => haystack.includes(t));
       }
 
       return true;
     });
-  }, [videos, searchQuery, selectedCategory, isOfflineMode]);
+
+    // Live YouTube results have no category, so they only show under "All"
+    if (!terms.length || selectedCategory !== 'All' || isOfflineMode) return local;
+    const localIds = new Set(local.map(v => v.youtubeId));
+    return [...local, ...remoteResults.filter(v => !localIds.has(v.youtubeId))];
+  }, [videos, searchQuery, selectedCategory, isOfflineMode, remoteResults]);
 
   // Section visibility helpers
   const isSectionVisible = useCallback((id: PageSectionId) => {
@@ -592,6 +680,7 @@ export default function App() {
                 onSelectCategory={setSelectedCategory}
                 isDarkMode={isDarkMode}
                 totalResults={filteredVideos.length}
+                isSearching={isSearching}
                 isOfflineMode={isOfflineMode}
                 onToggleOfflineOnly={handleToggleOfflineMode}
               />
@@ -693,7 +782,10 @@ export default function App() {
                           >
                             <div className="relative w-28 aspect-video rounded bg-neutral-900 overflow-hidden shrink-0 flex items-center justify-center">
                               <div className={`absolute inset-0 bg-gradient-to-br ${v.thumbnailGradient} opacity-60`} />
-                              <span className="text-white text-[10px] font-mono font-semibold relative z-10">
+                              {v.thumbnailUrl && (
+                                <img src={v.thumbnailUrl} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
+                              )}
+                              <span className="text-white text-[10px] font-mono font-semibold relative z-10 px-1 rounded bg-black/60">
                                 {v.duration}
                               </span>
                               {v.isOffline && (
@@ -730,6 +822,7 @@ export default function App() {
                     onOpenShareModal={handleOpenShare}
                     onOpenDeviceSync={() => setShowDeviceSyncModal(true)}
                     isDarkMode={isDarkMode}
+                    isSearching={isSearching}
                     title="Front Page Stream Catalog"
                   />
                 </section>
@@ -783,6 +876,7 @@ export default function App() {
                     onOpenShareModal={handleOpenShare}
                     onOpenDeviceSync={() => setShowDeviceSyncModal(true)}
                     isDarkMode={isDarkMode}
+                    isSearching={isSearching}
                     title="Front Page Stream Catalog"
                   />
                 </section>
@@ -826,6 +920,7 @@ export default function App() {
                     onOpenShareModal={handleOpenShare}
                     onOpenDeviceSync={() => setShowDeviceSyncModal(true)}
                     isDarkMode={isDarkMode}
+                    isSearching={isSearching}
                     title="Front Page Feed"
                   />
                 </section>
