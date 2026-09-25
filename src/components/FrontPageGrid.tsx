@@ -27,11 +27,13 @@ interface FrontPageGridProps {
   onOpenDeviceSync: () => void;
   isDarkMode: boolean;
   title?: string;
+  isSearching?: boolean;
 }
 
 export const FrontPageGrid: React.FC<FrontPageGridProps> = ({
   videos,
   activeVideoId,
+  isSearching = false,
   onSelectVideo,
   onDownloadVideo,
   onOpenShareModal,
@@ -52,6 +54,16 @@ export const FrontPageGrid: React.FC<FrontPageGridProps> = ({
       default: return <Play className="w-8 h-8 text-neutral-400 stroke-1" />;
     }
   };
+
+  if (videos.length === 0 && isSearching) {
+    return (
+      <div className={`p-8 rounded-xl border text-center text-xs ${
+        isDarkMode ? 'bg-white/[0.02] border-white/10 text-neutral-400' : 'bg-black/[0.02] border-black/10 text-neutral-500'
+      }`}>
+        Searching YouTube…
+      </div>
+    );
+  }
 
   if (videos.length === 0) {
     return (
@@ -105,11 +117,20 @@ export const FrontPageGrid: React.FC<FrontPageGridProps> = ({
                   {/* Subtle technical grid overlay */}
                   <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.06)_1px,transparent_1px)] bg-[size:12px_12px] opacity-40 pointer-events-none" />
                 </div>
+                {vid.thumbnailUrl && (
+                  <img
+                    src={vid.thumbnailUrl}
+                    alt=""
+                    loading="lazy"
+                    decoding="async"
+                    className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                  />
+                )}
 
                 {/* Duration Badge */}
-                <div className="absolute bottom-2 right-2 px-1.5 py-0.5 rounded bg-black/80 text-white text-[10px] font-mono font-medium backdrop-blur-sm">
+                {vid.duration && <div className="absolute bottom-2 right-2 px-1.5 py-0.5 rounded bg-black/80 text-white text-[10px] font-mono font-medium backdrop-blur-sm">
                   {vid.duration}
-                </div>
+                </div>}
 
                 {/* Top Status Indicators (Offline ready, Active Now, Resolution) */}
                 <div className="absolute top-2 left-2 flex items-center gap-1.5">
@@ -187,11 +208,14 @@ export const FrontPageGrid: React.FC<FrontPageGridProps> = ({
 
                 {/* Zero-Pill Unboxed Metadata per Design Constitution */}
                 <div className="pt-2 border-t border-white/[0.06] flex items-center gap-1.5 text-[11px] text-neutral-500 font-mono">
-                  <span>{vid.views}</span>
-                  <span aria-hidden="true">·</span>
-                  <span>{vid.publishedDate}</span>
-                  <span aria-hidden="true">·</span>
-                  <span>{vid.resolution.split(' ')[0]}</span>
+                  {[vid.views, vid.publishedDate, vid.resolution.split(' ')[0]]
+                    .filter(Boolean)
+                    .map((part, i) => (
+                      <React.Fragment key={i}>
+                        {i > 0 && <span aria-hidden="true">·</span>}
+                        <span className="truncate">{part}</span>
+                      </React.Fragment>
+                    ))}
                 </div>
               </div>
             </div>

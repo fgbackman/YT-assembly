@@ -15,6 +15,8 @@ export interface Video {
   videoUrl: string;
   youtubeId?: string; // Optional YouTube ID or custom stream ID
   thumbnailGradient: string;
+  thumbnailUrl?: string; // Real thumbnail image (YouTube search results)
+  source?: 'youtube'; // Set for live YouTube search results
   previewSvgIcon: string;
   resolution: string;
   fps: number;
