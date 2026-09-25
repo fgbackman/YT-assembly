@@ -18,7 +18,9 @@ import {
   Youtube, 
   AlertCircle,
   RefreshCw,
-  Sliders
+  Sliders,
+  LayoutGrid,
+  X
 } from 'lucide-react';
 import { Video, BufferMetrics, AdBlockStats } from '../types';
 import { ProceduralCanvasVideo } from './ProceduralCanvasVideo';
@@ -65,6 +67,8 @@ export const VideoPlayer = memo<VideoPlayerProps>(function VideoPlayer({
   const iframeRef = useRef<HTMLIFrameElement>(null);
   // YouTube IFrame API player state: -1 unstarted, 0 ended, 1 playing, 2 paused, 3 buffering, 5 cued
   const [ytState, setYtState] = useState<number>(-1);
+  // In-app "More videos" panel, opened from the control bar while a video is playing
+  const [showMoreVideos, setShowMoreVideos] = useState<boolean>(false);
   const containerRef = useRef<HTMLDivElement>(null);
   
   // Engine: procedural_assembly is guaranteed 100% to run instantly with zero CORS issues,
@@ -118,6 +122,7 @@ export const VideoPlayer = memo<VideoPlayerProps>(function VideoPlayer({
     setIsPlaying(true);
     // Auto-buffer visual
     setBufferedEnd(video.durationSeconds || 500);
+    setShowMoreVideos(false);
     // Live YouTube search results can only play through the official embed
     if (video.source === 'youtube') setEngine('youtube_embed');
   }, [video.id, video.durationSeconds, video.source]);
@@ -130,6 +135,8 @@ export const VideoPlayer = memo<VideoPlayerProps>(function VideoPlayer({
   const embedYoutubeId = video.youtubeId || 'kJQP7kiw5Fk';
   const onEmbedVideoChangeRef = useRef(onEmbedVideoChange);
   onEmbedVideoChangeRef.current = onEmbedVideoChange;
+  const onTimeUpdateSyncRef = useRef(onTimeUpdateSync);
+  onTimeUpdateSyncRef.current = onTimeUpdateSync;
 
   // Track the YouTube embed's state so its own "More videos" / end screen
   // (whose links open youtube.com) can be covered with an in-app overlay.
@@ -148,6 +155,17 @@ export const VideoPlayer = memo<VideoPlayerProps>(function VideoPlayer({
         setYtState(data.info);
       } else if (data?.event === 'infoDelivery' && typeof data.info?.playerState === 'number') {
         setYtState(data.info.playerState);
+      }
+      // Drive the app's own control bar from the embed's progress reports
+      if (data?.event === 'infoDelivery') {
+        if (typeof data.info?.currentTime === 'number') {
+          setCurrentTime(data.info.currentTime);
+          onTimeUpdateSyncRef.current?.(data.info.currentTime);
+        }
+        if (typeof data.info?.duration === 'number' && data.info.duration > 0) {
+          setDuration(data.info.duration);
+          setBufferedEnd(data.info.duration);
+        }
       }
 
       // A video opened from inside the embed becomes the app's active video
@@ -178,8 +196,40 @@ export const VideoPlayer = memo<VideoPlayerProps>(function VideoPlayer({
     postToYt({ event: 'listening' });
   };
 
-  const sendYtCommand = (func: string, args: unknown[] = []) => {
+  const sendYtCommand = useCallback((func: string, args: unknown[] = []) => {
     postToYt({ event: 'command', func, args });
+  }, [postToYt]);
+
+  // Keep the shared play state in sync with the embed (playing or buffering counts as playing)
+  useEffect(() => {
+    if (engine !== 'youtube_embed') return;
+    if (ytState === 1 || ytState === 3) setIsPlaying(true);
+    else if (ytState === 0 || ytState === 2) setIsPlaying(false);
+  }, [engine, ytState]);
+
+  // Mirror volume and speed controls into the embed once its player is answering
+  const ytReady = ytState !== -1;
+  useEffect(() => {
+    if (engine !== 'youtube_embed' || !ytReady) return;
+    sendYtCommand(isMuted ? 'mute' : 'unMute');
+    sendYtCommand('setVolume', [Math.round(volume * 100)]);
+  }, [engine, ytReady, isMuted, volume, sendYtCommand]);
+
+  useEffect(() => {
+    if (engine !== 'youtube_embed' || !ytReady) return;
+    sendYtCommand('setPlaybackRate', [playbackRate]);
+  }, [engine, ytReady, playbackRate, sendYtCommand]);
+
+  const openMoreVideos = () => {
+    if (engine === 'youtube_embed') {
+      sendYtCommand('pauseVideo');
+      setYtState(2);
+    } else if (engine === 'html5_mp4' && videoRef.current) {
+      videoRef.current.pause();
+    } else {
+      setIsPlaying(false);
+    }
+    setShowMoreVideos(true);
   };
 
   // SponsorBlock auto-skipping simulation
@@ -192,6 +242,7 @@ export const VideoPlayer = memo<VideoPlayerProps>(function VideoPlayer({
           if (videoRef.current) {
             videoRef.current.currentTime = seg.end;
           }
+          if (engine === 'youtube_embed') sendYtCommand('seekTo', [seg.end, true]);
           onSponsorSkipped(skipDuration);
           setSponsorNotification(`Skipped ${seg.label} (+${Math.round(skipDuration)}s saved)`);
           setTimeout(() => setSponsorNotification(null), 3000);
@@ -199,7 +250,7 @@ export const VideoPlayer = memo<VideoPlayerProps>(function VideoPlayer({
         }
       }
     }
-  }, [currentTime, video.sponsorsSegments, adBlockStats.skipSponsors, onSponsorSkipped]);
+  }, [currentTime, video.sponsorsSegments, adBlockStats.skipSponsors, onSponsorSkipped, engine, sendYtCommand]);
 
   // HTML5 video tag listeners when engine is html5_mp4
   useEffect(() => {
@@ -250,6 +301,16 @@ export const VideoPlayer = memo<VideoPlayerProps>(function VideoPlayer({
       } else {
         videoRef.current.pause();
       }
+    } else if (engine === 'youtube_embed') {
+      if (ytState === 1 || ytState === 3) {
+        sendYtCommand('pauseVideo');
+        setYtState(2);
+      } else {
+        if (ytState === 0) sendYtCommand('seekTo', [0, true]);
+        sendYtCommand('playVideo');
+        setYtState(1);
+        setShowMoreVideos(false);
+      }
     } else {
       setIsPlaying(p => !p);
     }
@@ -259,6 +320,9 @@ export const VideoPlayer = memo<VideoPlayerProps>(function VideoPlayer({
     setCurrentTime(newTime);
     if (videoRef.current && engine === 'html5_mp4') {
       videoRef.current.currentTime = newTime;
+    }
+    if (engine === 'youtube_embed') {
+      sendYtCommand('seekTo', [newTime, true]);
     }
     if (onTimeUpdateSync) {
       onTimeUpdateSync(newTime);
@@ -330,6 +394,8 @@ export const VideoPlayer = memo<VideoPlayerProps>(function VideoPlayer({
   }, [scheduleOverlayHide, video.id]);
 
   const overlayVisible = isHovered || !isPlaying || showBufferInspector || showSettingsMenu;
+  const endScreenVisible = showMoreVideos || (engine === 'youtube_embed' && (ytState === 0 || ytState === 2));
+  const isEnded = engine === 'youtube_embed' && ytState === 0;
   const overlayFadeClass = `transition-opacity duration-500 ${
     overlayVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
   }`;
@@ -369,7 +435,7 @@ export const VideoPlayer = memo<VideoPlayerProps>(function VideoPlayer({
           <iframe
             ref={iframeRef}
             key={video.id}
-            src={`https://www.youtube-nocookie.com/embed/${embedYoutubeId}?autoplay=1&mute=0&controls=1&rel=0&modestbranding=1&enablejsapi=1&origin=${encodeURIComponent(window.location.origin)}`}
+            src={`https://www.youtube-nocookie.com/embed/${embedYoutubeId}?autoplay=1&mute=0&controls=0&rel=0&modestbranding=1&playsinline=1&iv_load_policy=3&fs=0&disablekb=1&enablejsapi=1&origin=${encodeURIComponent(window.location.origin)}`}
             title={video.title}
             className="w-full h-full border-0"
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
@@ -379,46 +445,64 @@ export const VideoPlayer = memo<VideoPlayerProps>(function VideoPlayer({
             allowFullScreen
             onLoad={handleIframeLoad}
           />
+          {/* Click shield: YouTube's own overlays ("More videos", title links) open youtube.com, which the
+              sandbox blocks, so taps on the video go to the app's play/pause instead. */}
+          <div
+            className="absolute inset-0 z-10 cursor-pointer"
+            onClick={() => {
+              if (!isHovered && isPlaying) {
+                // First tap on touch screens just reveals the controls
+                setIsHovered(true);
+                scheduleOverlayHide();
+                return;
+              }
+              handleTogglePlay();
+            }}
+          />
+        </div>
+      )}
 
-          {/* In-app pause / end screen that replaces YouTube's outbound "More videos" tiles */}
-          {(ytState === 0 || ytState === 2) && (
-            <div className="absolute inset-0 z-20 bg-black/85 backdrop-blur-sm flex flex-col items-center justify-center gap-4 p-4 pt-12">
-              <button
-                type="button"
-                onClick={() => {
-                  if (ytState === 0) sendYtCommand('seekTo', [0, true]);
-                  sendYtCommand('playVideo');
-                  setYtState(1);
-                }}
-                className="flex items-center gap-2 px-4 py-2 rounded-full bg-rose-600 hover:bg-rose-500 text-white text-sm font-semibold shadow-lg transition-colors"
-              >
-                {ytState === 0 ? <RotateCcw className="w-4 h-4" /> : <Play className="w-4 h-4 fill-white" />}
-                <span>{ytState === 0 ? 'Replay' : 'Resume'}</span>
-              </button>
+      {/* In-app pause / end / "More videos" screen that replaces YouTube's outbound suggestion tiles */}
+      {endScreenVisible && (
+        <div className="absolute inset-0 z-20 bg-black/85 backdrop-blur-sm flex flex-col items-center justify-center gap-2 sm:gap-4 p-2 sm:p-4 pt-10 sm:pt-12 pb-16 sm:pb-20 overflow-y-auto">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setShowMoreVideos(false);
+                if (!isPlaying) handleTogglePlay();
+              }}
+              className="flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full bg-rose-600 hover:bg-rose-500 text-white text-xs sm:text-sm font-semibold shadow-lg transition-colors"
+            >
+              {isEnded ? <RotateCcw className="w-4 h-4" /> : <Play className="w-4 h-4 fill-white" />}
+              <span>{isEnded ? 'Replay' : 'Resume'}</span>
+            </button>
+          </div>
 
-              {onSelectVideo && upNextVideos.length > 0 && (
-                <div className="w-full max-w-3xl">
-                  <div className="text-[11px] font-mono uppercase tracking-wider text-neutral-400 mb-2 text-center">
-                    Up next in ytasmbrowser
-                  </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    {upNextVideos.slice(0, 4).map(v => (
-                      <button
-                        key={v.id}
-                        type="button"
-                        onClick={() => onSelectVideo(v)}
-                        className="text-left rounded-lg overflow-hidden bg-white/5 hover:bg-white/10 border border-white/10 transition-colors"
-                      >
-                        <div
-                          className={`aspect-video w-full bg-cover bg-center ${v.thumbnailUrl ? '' : `bg-gradient-to-br ${v.thumbnailGradient}`}`}
-                          style={v.thumbnailUrl ? { backgroundImage: `url(${v.thumbnailUrl})` } : undefined}
-                        />
-                        <div className="p-1.5 text-[11px] leading-tight text-white line-clamp-2">{v.title}</div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
+          {onSelectVideo && upNextVideos.length > 0 && (
+            <div className="w-full max-w-3xl">
+              <div className="text-[10px] sm:text-[11px] font-mono uppercase tracking-wider text-neutral-400 mb-1.5 sm:mb-2 text-center">
+                Up next in ytasmbrowser
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 sm:gap-2">
+                {upNextVideos.slice(0, 4).map(v => (
+                  <button
+                    key={v.id}
+                    type="button"
+                    onClick={() => {
+                      setShowMoreVideos(false);
+                      onSelectVideo(v);
+                    }}
+                    className="flex sm:block items-center gap-1.5 text-left rounded-lg overflow-hidden bg-white/5 hover:bg-white/10 border border-white/10 transition-colors"
+                  >
+                    <div
+                      className={`aspect-video w-12 shrink-0 sm:w-full bg-cover bg-center ${v.thumbnailUrl ? '' : `bg-gradient-to-br ${v.thumbnailGradient}`}`}
+                      style={v.thumbnailUrl ? { backgroundImage: `url(${v.thumbnailUrl})` } : undefined}
+                    />
+                    <div className="p-1 sm:p-1.5 text-[10px] sm:text-[11px] leading-tight text-white line-clamp-2">{v.title}</div>
+                  </button>
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -436,8 +520,8 @@ export const VideoPlayer = memo<VideoPlayerProps>(function VideoPlayer({
       )}
 
       {/* Top Left: Cocoa AdShield Indicator & Engine Selector */}
-      <div className={`absolute top-3 left-3 z-30 flex items-center gap-2 ${overlayFadeClass}`}>
-        <div className="px-2.5 py-1 rounded-md text-[10px] font-mono flex items-center gap-1.5 shadow-md backdrop-blur-md border bg-emerald-950/80 border-emerald-500/40 text-emerald-300">
+      <div className={`absolute top-2 left-2 sm:top-3 sm:left-3 z-30 flex items-center gap-2 ${overlayFadeClass}`}>
+        <div className="hidden sm:flex px-2.5 py-1 rounded-md text-[10px] font-mono items-center gap-1.5 shadow-md backdrop-blur-md border bg-emerald-950/80 border-emerald-500/40 text-emerald-300">
           <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
           <span>AD-FREE ASSEMBLY ENGINE</span>
           <span className="text-emerald-400 font-bold">0 ADS</span>
@@ -476,7 +560,7 @@ export const VideoPlayer = memo<VideoPlayerProps>(function VideoPlayer({
       </div>
 
       {/* Top Right: Buffer & Speed Status */}
-      <div className={`absolute top-3 right-3 z-30 flex items-center gap-2 ${overlayFadeClass}`}>
+      <div className={`absolute top-2 right-2 sm:top-3 sm:right-3 z-30 hidden sm:flex items-center gap-2 ${overlayFadeClass}`}>
         <button
           type="button"
           onClick={() => setShowBufferInspector(!showBufferInspector)}
@@ -501,7 +585,7 @@ export const VideoPlayer = memo<VideoPlayerProps>(function VideoPlayer({
       )}
 
       {/* Center Big Play/Pause for non-iframe engines */}
-      {engine !== 'youtube_embed' && (!isPlaying || isHovered) && (
+      {!endScreenVisible && engine !== 'youtube_embed' && (!isPlaying || isHovered) && (
         <button
           type="button"
           onClick={handleTogglePlay}
@@ -555,10 +639,10 @@ export const VideoPlayer = memo<VideoPlayerProps>(function VideoPlayer({
         </div>
       )}
 
-      {/* Bottom Controls Bar (Rendered for procedural & mp4) */}
-      {engine !== 'youtube_embed' && (
+      {/* Bottom Controls Bar (all engines; YouTube's own controls are disabled) */}
+      {(
         <div 
-          className={`absolute bottom-0 inset-x-0 z-30 pt-8 pb-3 px-4 bg-gradient-to-t from-black/95 via-black/60 to-transparent ${overlayFadeClass}`}
+          className={`absolute bottom-0 inset-x-0 z-30 pt-8 pb-2 sm:pb-3 px-2 sm:px-4 bg-gradient-to-t from-black/95 via-black/60 to-transparent ${overlayFadeClass}`}
         >
           {/* Scrubber */}
           <div className="relative w-full h-4 flex items-center group/scrubber cursor-pointer mb-2">
@@ -606,7 +690,7 @@ export const VideoPlayer = memo<VideoPlayerProps>(function VideoPlayer({
 
           {/* Lower row */}
           <div className="flex items-center justify-between text-white text-xs">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0">
               <button
                 type="button"
                 onClick={handleTogglePlay}
@@ -619,7 +703,7 @@ export const VideoPlayer = memo<VideoPlayerProps>(function VideoPlayer({
               <button
                 type="button"
                 onClick={() => handleSkip(-10)}
-                className="p-1 hover:text-neutral-300 transition-colors"
+                className="hidden sm:block p-1 hover:text-neutral-300 transition-colors"
                 title="Rewind 10s"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
@@ -628,7 +712,7 @@ export const VideoPlayer = memo<VideoPlayerProps>(function VideoPlayer({
               <button
                 type="button"
                 onClick={() => handleSkip(10)}
-                className="p-1 hover:text-neutral-300 transition-colors"
+                className="hidden sm:block p-1 hover:text-neutral-300 transition-colors"
                 title="Forward 10s"
               >
                 <RotateCw className="w-3.5 h-3.5" />
@@ -654,22 +738,36 @@ export const VideoPlayer = memo<VideoPlayerProps>(function VideoPlayer({
                     setVolume(v);
                     setIsMuted(v === 0);
                   }}
-                  className="w-16 h-1 bg-white/30 rounded-lg appearance-none cursor-pointer accent-white"
+                  className="hidden sm:block w-16 h-1 bg-white/30 rounded-lg appearance-none cursor-pointer accent-white"
                   aria-label="Volume"
                 />
               </div>
 
               {/* Time display */}
-              <div className="text-[11px] font-mono text-neutral-300 tabular-nums">
+              <div className="text-[10px] sm:text-[11px] font-mono text-neutral-300 tabular-nums whitespace-nowrap">
                 <span>{formatTime(currentTime)}</span>
                 <span className="text-neutral-500 mx-1">/</span>
                 <span>{formatTime(duration)}</span>
               </div>
             </div>
 
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
+              {onSelectVideo && upNextVideos.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => (showMoreVideos ? setShowMoreVideos(false) : openMoreVideos())}
+                  className={`px-1.5 sm:px-2 py-1 rounded flex items-center gap-1 text-[11px] font-medium transition-colors ${
+                    showMoreVideos ? 'bg-white/20 text-white' : 'hover:bg-white/10 text-white/90'
+                  }`}
+                  title="More videos"
+                >
+                  {showMoreVideos ? <X className="w-4 h-4" /> : <LayoutGrid className="w-4 h-4" />}
+                  <span className="hidden sm:inline">More videos</span>
+                </button>
+              )}
+
               {/* Playback speed quick button */}
-              <div className="flex items-center gap-1 font-mono text-[11px]">
+              <div className="hidden sm:flex items-center gap-1 font-mono text-[11px]">
                 {[1, 1.5, 2].map((r) => (
                   <button
                     key={r}
