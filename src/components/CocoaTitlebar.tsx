@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, memo } from 'react';
 import { 
   Sun, 
   Moon, 
@@ -39,7 +39,7 @@ interface CocoaTitlebarProps {
   onToggleMaximizeWindow: () => void;
 }
 
-export const CocoaTitlebar: React.FC<CocoaTitlebarProps> = ({
+const CocoaTitlebarImpl: React.FC<CocoaTitlebarProps> = ({
   isDarkMode,
   onToggleDarkMode,
   isOfflineMode,
@@ -307,3 +307,5 @@ export const CocoaTitlebar: React.FC<CocoaTitlebarProps> = ({
     </header>
   );
 };
+
+export const CocoaTitlebar = memo(CocoaTitlebarImpl);

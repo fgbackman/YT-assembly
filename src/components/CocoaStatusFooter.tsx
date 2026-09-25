@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import { Wifi, HardDrive, ShieldCheck, Monitor, Cpu } from 'lucide-react';
 import { SyncDevice } from '../types';
 
@@ -11,7 +11,7 @@ interface CocoaStatusFooterProps {
   onOpenOfflineManager: () => void;
 }
 
-export const CocoaStatusFooter: React.FC<CocoaStatusFooterProps> = ({
+const CocoaStatusFooterImpl: React.FC<CocoaStatusFooterProps> = ({
   isDarkMode,
   isOfflineMode,
   adsBlocked,
@@ -75,3 +75,5 @@ export const CocoaStatusFooter: React.FC<CocoaStatusFooterProps> = ({
     </footer>
   );
 };
+
+export const CocoaStatusFooter = memo(CocoaStatusFooterImpl);

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, memo } from 'react';
 import { 
   ThumbsUp, 
   Share2, 
@@ -27,7 +27,7 @@ interface VideoInfoBarProps {
   onToggleLikeComment: (commentId: string) => void;
 }
 
-export const VideoInfoBar: React.FC<VideoInfoBarProps> = ({
+const VideoInfoBarImpl: React.FC<VideoInfoBarProps> = ({
   video,
   isDarkMode,
   onToggleLike,
@@ -275,3 +275,5 @@ export const VideoInfoBar: React.FC<VideoInfoBarProps> = ({
     </div>
   );
 };
+
+export const VideoInfoBar = memo(VideoInfoBarImpl);
