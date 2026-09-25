@@ -119,6 +119,11 @@ export const VideoPlayer = memo<VideoPlayerProps>(function VideoPlayer({
     if (video.source === 'youtube') setEngine('youtube_embed');
   }, [video.id, video.durationSeconds, video.source]);
 
+  // The embed only answers messages tagged with channel "widget" (same shape the official IFrame API sends)
+  const postToYt = useCallback((msg: Record<string, unknown>) => {
+    iframeRef.current?.contentWindow?.postMessage(JSON.stringify({ ...msg, id: video.id, channel: 'widget' }), '*');
+  }, [video.id]);
+
   // Track the YouTube embed's state so its own "More videos" / end screen
   // (whose links open youtube.com) can be covered with an in-app overlay.
   useEffect(() => {
@@ -142,21 +147,21 @@ export const VideoPlayer = memo<VideoPlayerProps>(function VideoPlayer({
     window.addEventListener('message', handleMessage);
     // The embed ignores "listening" until its player is ready, so keep asking until it answers
     const handshake = setInterval(() => {
-      iframeRef.current?.contentWindow?.postMessage(JSON.stringify({ event: 'listening', id: video.id }), '*');
+      postToYt({ event: 'listening' });
     }, 500);
     return () => {
       window.removeEventListener('message', handleMessage);
       clearInterval(handshake);
     };
-  }, [engine, video.id]);
+  }, [engine, video.id, postToYt]);
 
   const handleIframeLoad = () => {
     // Ask the embed to start sending state events to this window
-    iframeRef.current?.contentWindow?.postMessage(JSON.stringify({ event: 'listening', id: video.id }), '*');
+    postToYt({ event: 'listening' });
   };
 
   const sendYtCommand = (func: string, args: unknown[] = []) => {
-    iframeRef.current?.contentWindow?.postMessage(JSON.stringify({ event: 'command', func, args }), '*');
+    postToYt({ event: 'command', func, args });
   };
 
   // SponsorBlock auto-skipping simulation
