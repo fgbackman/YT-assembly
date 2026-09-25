@@ -69,6 +69,11 @@ export const VideoPlayer = memo<VideoPlayerProps>(function VideoPlayer({
   const [ytState, setYtState] = useState<number>(-1);
   // In-app "More videos" panel, opened from the control bar while a video is playing
   const [showMoreVideos, setShowMoreVideos] = useState<boolean>(false);
+  // Set when the embed never answers the IFrame API handshake. The app then hands clicks
+  // back to YouTube's native player instead of leaving a click shield nothing responds to.
+  const [ytApiDead, setYtApiDead] = useState<boolean>(false);
+  const ytAnsweredRef = useRef<boolean>(false);
+  const ytDeadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   
   // Engine: procedural_assembly is guaranteed 100% to run instantly with zero CORS issues,
@@ -143,6 +148,9 @@ export const VideoPlayer = memo<VideoPlayerProps>(function VideoPlayer({
   useEffect(() => {
     if (engine !== 'youtube_embed') return;
     setYtState(-1);
+    ytAnsweredRef.current = false;
+    // Native-controls mode: YouTube's own player handles clicks, nothing to listen for
+    if (ytApiDead) return;
 
     const handleMessage = (e: MessageEvent) => {
       if (e.source !== iframeRef.current?.contentWindow) return;
@@ -150,7 +158,10 @@ export const VideoPlayer = memo<VideoPlayerProps>(function VideoPlayer({
       if (typeof data === 'string') {
         try { data = JSON.parse(data); } catch { return; }
       }
-      if (data?.event) clearInterval(handshake);
+      if (data?.event) {
+        clearInterval(handshake);
+        ytAnsweredRef.current = true;
+      }
       if (data?.event === 'onStateChange' && typeof data.info === 'number') {
         setYtState(data.info);
       } else if (data?.event === 'infoDelivery' && typeof data.info?.playerState === 'number') {
@@ -188,12 +199,20 @@ export const VideoPlayer = memo<VideoPlayerProps>(function VideoPlayer({
     return () => {
       window.removeEventListener('message', handleMessage);
       clearInterval(handshake);
+      if (ytDeadTimerRef.current) clearTimeout(ytDeadTimerRef.current);
     };
-  }, [engine, video.id, postToYt, embedYoutubeId]);
+  }, [engine, video.id, postToYt, embedYoutubeId, ytApiDead]);
 
   const handleIframeLoad = () => {
+    if (ytApiDead) return;
     // Ask the embed to start sending state events to this window
     postToYt({ event: 'listening' });
+    // The player answers within a moment of its document loading. If it never does, the API
+    // is unusable in this browser, so reload with YouTube's native controls and no shield.
+    if (ytDeadTimerRef.current) clearTimeout(ytDeadTimerRef.current);
+    ytDeadTimerRef.current = setTimeout(() => {
+      if (!ytAnsweredRef.current) setYtApiDead(true);
+    }, 6000);
   };
 
   const sendYtCommand = useCallback((func: string, args: unknown[] = []) => {
@@ -202,10 +221,10 @@ export const VideoPlayer = memo<VideoPlayerProps>(function VideoPlayer({
 
   // Keep the shared play state in sync with the embed (playing or buffering counts as playing)
   useEffect(() => {
-    if (engine !== 'youtube_embed') return;
-    if (ytState === 1 || ytState === 3) setIsPlaying(true);
-    else if (ytState === 0 || ytState === 2) setIsPlaying(false);
-  }, [engine, ytState]);
+    if (engine !== 'youtube_embed' || ytApiDead) return;
+    // Playing or buffering counts as playing; unstarted, cued, paused and ended do not
+    setIsPlaying(ytState === 1 || ytState === 3);
+  }, [engine, ytState, ytApiDead]);
 
   // Mirror volume and speed controls into the embed once its player is answering
   const ytReady = ytState !== -1;
@@ -308,7 +327,8 @@ export const VideoPlayer = memo<VideoPlayerProps>(function VideoPlayer({
       } else {
         if (ytState === 0) sendYtCommand('seekTo', [0, true]);
         sendYtCommand('playVideo');
-        setYtState(1);
+        // The player reports state 1 itself. Assuming it here would raise the click shield
+        // over YouTube's own play button when the browser refuses to start playback.
         setShowMoreVideos(false);
       }
     } else {
@@ -396,6 +416,8 @@ export const VideoPlayer = memo<VideoPlayerProps>(function VideoPlayer({
   const overlayVisible = isHovered || !isPlaying || showBufferInspector || showSettingsMenu;
   const endScreenVisible = showMoreVideos || (engine === 'youtube_embed' && (ytState === 0 || ytState === 2));
   const isEnded = engine === 'youtube_embed' && ytState === 0;
+  // Cover the iframe only while the embed is confirmed playing or buffering
+  const shieldActive = engine === 'youtube_embed' && !ytApiDead && (ytState === 1 || ytState === 3);
   const overlayFadeClass = `transition-opacity duration-500 ${
     overlayVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
   }`;
@@ -435,7 +457,7 @@ export const VideoPlayer = memo<VideoPlayerProps>(function VideoPlayer({
           <iframe
             ref={iframeRef}
             key={video.id}
-            src={`https://www.youtube-nocookie.com/embed/${embedYoutubeId}?autoplay=1&mute=0&controls=0&rel=0&modestbranding=1&playsinline=1&iv_load_policy=3&fs=0&disablekb=1&enablejsapi=1&origin=${encodeURIComponent(window.location.origin)}`}
+            src={`https://www.youtube-nocookie.com/embed/${embedYoutubeId}?autoplay=1&mute=0&controls=${ytApiDead ? 1 : 0}&rel=0&modestbranding=1&playsinline=1&iv_load_policy=3&fs=${ytApiDead ? 1 : 0}&disablekb=${ytApiDead ? 0 : 1}&enablejsapi=1&origin=${encodeURIComponent(window.location.origin)}`}
             title={video.title}
             className="w-full h-full border-0"
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
@@ -445,20 +467,19 @@ export const VideoPlayer = memo<VideoPlayerProps>(function VideoPlayer({
             allowFullScreen
             onLoad={handleIframeLoad}
           />
-          {/* Click shield: YouTube's own overlays ("More videos", title links) open youtube.com, which the
-              sandbox blocks, so taps on the video go to the app's play/pause instead. */}
-          <div
-            className="absolute inset-0 z-10 cursor-pointer"
-            onClick={() => {
-              if (!isHovered && isPlaying) {
-                // First tap on touch screens just reveals the controls
+          {/* Click shield, only while the embed is confirmed playing: YouTube's hover title bar links
+              open youtube.com (blocked by the sandbox), so a click on the video pauses it in-app instead.
+              Before playback starts, or if the API never answers, clicks reach YouTube's own player. */}
+          {shieldActive && (
+            <div
+              className="absolute inset-0 z-10 cursor-pointer"
+              onClick={() => {
                 setIsHovered(true);
                 scheduleOverlayHide();
-                return;
-              }
-              handleTogglePlay();
-            }}
-          />
+                handleTogglePlay();
+              }}
+            />
+          )}
         </div>
       )}
 
@@ -639,8 +660,8 @@ export const VideoPlayer = memo<VideoPlayerProps>(function VideoPlayer({
         </div>
       )}
 
-      {/* Bottom Controls Bar (all engines; YouTube's own controls are disabled) */}
-      {(
+      {/* Bottom Controls Bar (all engines; YouTube's own controls are disabled unless its API is unreachable) */}
+      {!(engine === 'youtube_embed' && ytApiDead) && (
         <div 
           className={`absolute bottom-0 inset-x-0 z-30 pt-8 pb-2 sm:pb-3 px-2 sm:px-4 bg-gradient-to-t from-black/95 via-black/60 to-transparent ${overlayFadeClass}`}
         >
