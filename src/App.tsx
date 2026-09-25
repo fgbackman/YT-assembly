@@ -362,6 +362,12 @@ export default function App() {
     [filteredVideos, activeVideo.id]
   );
 
+  // In-app suggestions shown on the player's pause / end screen
+  const upNextVideos = useMemo(
+    () => filteredVideos.filter(v => v.id !== activeVideo.id).slice(0, 4),
+    [filteredVideos, activeVideo.id]
+  );
+
   // Section visibility helpers
   const isSectionVisible = useCallback((id: PageSectionId) => {
     const sec = sections.find(s => s.id === id);
