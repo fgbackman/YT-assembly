@@ -108,6 +108,13 @@ interface YouTubeSearchResult {
 const parseDurationSeconds = (duration: string) =>
   duration.split(':').reduce((total, part) => total * 60 + (Number(part) || 0), 0);
 
+const formatDuration = (secs: number) => {
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = String(secs % 60).padStart(2, '0');
+  return h ? `${h}:${String(m).padStart(2, '0')}:${s}` : `${m}:${s}`;
+};
+
 const toYouTubeVideo = (r: YouTubeSearchResult): Video => ({
   id: `yt-${r.youtubeId}`,
   title: r.title,
@@ -458,6 +465,30 @@ export default function App() {
     stage?.scrollIntoView({ behavior: 'smooth' });
   }, []);
 
+  // The YouTube embed moved to another video (a suggestion clicked inside the player): play it in-app
+  const handleEmbedVideoChange = useCallback(
+    (info: { youtubeId: string; title: string; channel: string; durationSeconds: number }) => {
+      const known =
+        videos.find(v => v.youtubeId === info.youtubeId) ??
+        remoteResults.find(v => v.youtubeId === info.youtubeId);
+      const next =
+        known ??
+        toYouTubeVideo({
+          youtubeId: info.youtubeId,
+          title: info.title || 'YouTube video',
+          channel: info.channel,
+          description: '',
+          duration: info.durationSeconds ? formatDuration(info.durationSeconds) : '',
+          views: '',
+          publishedDate: '',
+          thumbnailUrl: `https://i.ytimg.com/vi/${info.youtubeId}/mqdefault.jpg`,
+        });
+      setActiveVideo(prev => (prev.youtubeId === info.youtubeId ? prev : next));
+      setInitialSeekTime(0);
+    },
+    [videos, remoteResults]
+  );
+
   const handleToggleLike = useCallback((videoId: string) => {
     setVideos(prev => prev.map(v => {
       if (v.id === videoId) {
@@ -774,6 +805,7 @@ export default function App() {
                       onOpenPageBuilder={openPageBuilder}
                       upNextVideos={upNextVideos}
                       onSelectVideo={handleSelectVideo}
+                      onEmbedVideoChange={handleEmbedVideoChange}
                     />
                   )}
 
@@ -885,6 +917,7 @@ export default function App() {
                     onOpenPageBuilder={openPageBuilder}
                     upNextVideos={upNextVideos}
                     onSelectVideo={handleSelectVideo}
+                    onEmbedVideoChange={handleEmbedVideoChange}
                   />
                 )}
 
@@ -941,6 +974,7 @@ export default function App() {
                     onOpenPageBuilder={openPageBuilder}
                     upNextVideos={upNextVideos}
                     onSelectVideo={handleSelectVideo}
+                    onEmbedVideoChange={handleEmbedVideoChange}
                   />
                 )}
                 <div className="flex items-center justify-between text-xs">
