@@ -93,8 +93,12 @@ const DEFAULT_SECTIONS: PageSectionConfig[] = [
 export default function App() {
   // Theme state
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
-    const saved = localStorage.getItem('assembly_dark_mode');
-    return saved !== null ? saved === 'true' : true;
+    try {
+      const saved = localStorage.getItem('assembly_dark_mode');
+      return saved !== null ? saved === 'true' : true;
+    } catch {
+      return true;
+    }
   });
 
   // Window state
@@ -103,27 +107,23 @@ export default function App() {
 
   // Page Builder section state
   const [sections, setSections] = useState<PageSectionConfig[]>(() => {
-    const saved = localStorage.getItem('assembly_page_sections');
-    if (saved) {
-      try {
+    try {
+      const saved = localStorage.getItem('assembly_page_sections');
+      if (saved) {
         return JSON.parse(saved);
-      } catch {
-        return DEFAULT_SECTIONS;
       }
-    }
+    } catch {}
     return DEFAULT_SECTIONS;
   });
 
   // Video catalog & Active stream
   const [videos, setVideos] = useState<Video[]>(() => {
-    const saved = localStorage.getItem('assembly_cached_videos');
-    if (saved) {
-      try {
+    try {
+      const saved = localStorage.getItem('assembly_cached_videos');
+      if (saved) {
         return JSON.parse(saved);
-      } catch {
-        return INITIAL_VIDEOS;
       }
-    }
+    } catch {}
     return INITIAL_VIDEOS;
   });
 
@@ -183,7 +183,9 @@ export default function App() {
 
   // Persist dark mode
   useEffect(() => {
-    localStorage.setItem('assembly_dark_mode', String(isDarkMode));
+    try {
+      localStorage.setItem('assembly_dark_mode', String(isDarkMode));
+    } catch {}
     if (isDarkMode) {
       document.documentElement.classList.add('dark');
     } else {
@@ -193,12 +195,16 @@ export default function App() {
 
   // Persist videos
   useEffect(() => {
-    localStorage.setItem('assembly_cached_videos', JSON.stringify(videos));
+    try {
+      localStorage.setItem('assembly_cached_videos', JSON.stringify(videos));
+    } catch {}
   }, [videos]);
 
   // Persist page sections
   useEffect(() => {
-    localStorage.setItem('assembly_page_sections', JSON.stringify(sections));
+    try {
+      localStorage.setItem('assembly_page_sections', JSON.stringify(sections));
+    } catch {}
   }, [sections]);
 
   // Cross-device sync via BroadcastChannel
