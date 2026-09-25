@@ -55,6 +55,8 @@ export const VideoPlayer = memo<VideoPlayerProps>(function VideoPlayer({
   onDownloadVideo,
   isOfflineMode,
   onOpenPageBuilder,
+  upNextVideos = [],
+  onSelectVideo,
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -129,6 +131,7 @@ export const VideoPlayer = memo<VideoPlayerProps>(function VideoPlayer({
       if (typeof data === 'string') {
         try { data = JSON.parse(data); } catch { return; }
       }
+      if (data?.event) clearInterval(handshake);
       if (data?.event === 'onStateChange' && typeof data.info === 'number') {
         setYtState(data.info);
       } else if (data?.event === 'infoDelivery' && typeof data.info?.playerState === 'number') {
@@ -137,7 +140,14 @@ export const VideoPlayer = memo<VideoPlayerProps>(function VideoPlayer({
     };
 
     window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
+    // The embed ignores "listening" until its player is ready, so keep asking until it answers
+    const handshake = setInterval(() => {
+      iframeRef.current?.contentWindow?.postMessage(JSON.stringify({ event: 'listening', id: video.id }), '*');
+    }, 500);
+    return () => {
+      window.removeEventListener('message', handleMessage);
+      clearInterval(handshake);
+    };
   }, [engine, video.id]);
 
   const handleIframeLoad = () => {
