@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect, useCallback } from 'react';
+import React, { useRef, useState, useEffect, useCallback, memo } from 'react';
 import { 
   Play, 
   Pause, 
@@ -40,7 +40,7 @@ interface VideoPlayerProps {
 
 export type PlaybackEngine = 'html5_mp4' | 'youtube_embed' | 'procedural_assembly';
 
-export const VideoPlayer: React.FC<VideoPlayerProps> = ({
+export const VideoPlayer = memo<VideoPlayerProps>(function VideoPlayer({
   video,
   isDarkMode,
   adBlockStats,
@@ -53,7 +53,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   onDownloadVideo,
   isOfflineMode,
   onOpenPageBuilder,
-}) => {
+}) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   
@@ -84,6 +84,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   });
 
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const handleEngineTimeUpdate = useCallback((t: number) => {
+    setCurrentTime(t);
+    onTimeUpdateSync?.(t);
+  }, [onTimeUpdateSync]);
 
   // Sync seek time if passed
   useEffect(() => {
@@ -282,10 +287,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             isPlaying={isPlaying}
             currentTime={currentTime}
             duration={duration}
-            onTimeUpdate={(t) => {
-              setCurrentTime(t);
-              if (onTimeUpdateSync) onTimeUpdateSync(t);
-            }}
+            onTimeUpdate={handleEngineTimeUpdate}
             speed={playbackRate}
             showOverlay={overlayVisible}
           />
@@ -578,4 +580,4 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       )}
     </div>
   );
-};
+});

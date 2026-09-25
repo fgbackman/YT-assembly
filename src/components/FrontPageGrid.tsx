@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import { 
   Play, 
   DownloadCloud, 
@@ -30,7 +30,7 @@ interface FrontPageGridProps {
   isSearching?: boolean;
 }
 
-export const FrontPageGrid: React.FC<FrontPageGridProps> = ({
+const FrontPageGridImpl: React.FC<FrontPageGridProps> = ({
   videos,
   activeVideoId,
   isSearching = false,
@@ -225,3 +225,5 @@ export const FrontPageGrid: React.FC<FrontPageGridProps> = ({
     </div>
   );
 };
+
+export const FrontPageGrid = memo(FrontPageGridImpl);
