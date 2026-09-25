@@ -29,6 +29,7 @@ export const SocialShareModal: React.FC<SocialShareModalProps> = ({
 }) => {
   const [includeTimestamp, setIncludeTimestamp] = useState(true);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [copiedYt, setCopiedYt] = useState(false);
   const [copiedEmbed, setCopiedEmbed] = useState(false);
   const [activeTab, setActiveTab] = useState<'social' | 'embed'>('social');
 
@@ -40,12 +41,21 @@ export const SocialShareModal: React.FC<SocialShareModalProps> = ({
     ? `${baseUrl}?v=${video.id}&t=${roundedTime}`
     : `${baseUrl}?v=${video.id}`;
 
+  const ytUrl = video.youtubeId ? `https://youtu.be/${video.youtubeId}${includeTimestamp && roundedTime > 0 ? `?t=${roundedTime}` : ''}` : '';
+
   const embedCode = `<iframe width="560" height="315" src="${shareUrl}&embed=1" title="${video.title}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>`;
 
   const handleCopyLink = () => {
     navigator.clipboard.writeText(shareUrl);
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2000);
+  };
+
+  const handleCopyYt = () => {
+    if (!ytUrl) return;
+    navigator.clipboard.writeText(ytUrl);
+    setCopiedYt(true);
+    setTimeout(() => setCopiedYt(false), 2000);
   };
 
   const handleCopyEmbed = () => {
@@ -186,7 +196,7 @@ export const SocialShareModal: React.FC<SocialShareModalProps> = ({
           {/* Copy Direct URL Box */}
           <div className="space-y-1">
             <div className="text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">
-              Direct Link
+              Cocoa Stage Link
             </div>
             <div className="flex gap-2">
               <input
@@ -207,6 +217,32 @@ export const SocialShareModal: React.FC<SocialShareModalProps> = ({
               </button>
             </div>
           </div>
+
+          {ytUrl && (
+            <div className="space-y-1">
+              <div className="text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">
+                Direct YouTube Link
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={ytUrl}
+                  className={`flex-1 h-8 px-2.5 text-xs rounded-md border font-mono outline-none ${
+                    isDarkMode ? 'bg-neutral-900 border-white/10 text-neutral-300' : 'bg-neutral-50 border-black/10 text-neutral-800'
+                  }`}
+                />
+                <button
+                  type="button"
+                  onClick={handleCopyYt}
+                  className="px-3 h-8 rounded-md bg-neutral-800 hover:bg-neutral-700 text-white text-xs font-medium flex items-center gap-1.5 transition-colors shrink-0 border border-white/10"
+                >
+                  {copiedYt ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedYt ? 'Copied' : 'Copy'}</span>
+                </button>
+              </div>
+            </div>
+          )}
 
           {activeTab === 'social' ? (
             /* Social Grid */

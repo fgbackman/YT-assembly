@@ -9,6 +9,8 @@ interface ProceduralCanvasVideoProps {
   duration: number;
   onTimeUpdate: (time: number) => void;
   speed: number;
+  volume?: number;
+  isMuted?: boolean;
 }
 
 export const ProceduralCanvasVideo: React.FC<ProceduralCanvasVideoProps> = ({
@@ -19,16 +21,103 @@ export const ProceduralCanvasVideo: React.FC<ProceduralCanvasVideoProps> = ({
   currentTime,
   duration,
   onTimeUpdate,
-  speed
+  speed,
+  volume = 0.85,
+  isMuted = false,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animFrameRef = useRef<number | null>(null);
   const lastTimestampRef = useRef<number>(performance.now());
   const timeRef = useRef<number>(currentTime);
+  const onTimeUpdateRef = useRef(onTimeUpdate);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const masterGainRef = useRef<GainNode | null>(null);
+
+  useEffect(() => {
+    onTimeUpdateRef.current = onTimeUpdate;
+  }, [onTimeUpdate]);
 
   useEffect(() => {
     timeRef.current = currentTime;
   }, [currentTime]);
+
+  // Ambient sound synthesizer when procedural engine is playing
+  useEffect(() => {
+    if (!isPlaying || isMuted) {
+      if (masterGainRef.current && audioCtxRef.current) {
+        masterGainRef.current.gain.setTargetAtTime(0, audioCtxRef.current.currentTime, 0.05);
+      }
+      return;
+    }
+
+    try {
+      const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtxClass) return;
+
+      if (!audioCtxRef.current) {
+        const ctx = new AudioCtxClass();
+        audioCtxRef.current = ctx;
+
+        const masterGain = ctx.createGain();
+        masterGain.gain.setValueAtTime(0, ctx.currentTime);
+        masterGain.connect(ctx.destination);
+        masterGainRef.current = masterGain;
+
+        // Base harmonic frequencies for generative ambient chord
+        const freqs = category === 'Space' || category === 'Science' 
+          ? [110, 164.81, 220, 329.63] // A minor / cosmic space
+          : category === 'Design' || category === 'Engineering'
+          ? [130.81, 164.81, 196.00, 261.63] // C major / architectural structure
+          : [146.83, 174.61, 220.00, 293.66]; // D minor warm tape ambient
+
+        freqs.forEach((freq, idx) => {
+          const osc = ctx.createOscillator();
+          const filter = ctx.createBiquadFilter();
+          const gain = ctx.createGain();
+
+          osc.type = idx % 2 === 0 ? 'sine' : 'triangle';
+          osc.frequency.setValueAtTime(freq, ctx.currentTime);
+
+          filter.type = 'lowpass';
+          filter.frequency.setValueAtTime(450 + idx * 80, ctx.currentTime);
+
+          gain.gain.setValueAtTime(0.02 / (idx + 1), ctx.currentTime);
+
+          osc.connect(filter);
+          filter.connect(gain);
+          gain.connect(masterGain);
+          osc.start();
+        });
+      }
+
+      if (audioCtxRef.current.state === 'suspended') {
+        audioCtxRef.current.resume().catch(() => {});
+      }
+
+      if (masterGainRef.current) {
+        const targetVol = isMuted ? 0 : Math.min(0.2, volume * 0.15);
+        masterGainRef.current.gain.setTargetAtTime(targetVol, audioCtxRef.current.currentTime, 0.1);
+      }
+    } catch {
+      // AudioContext could be blocked by browser autoplay policy
+    }
+
+    return () => {
+      if (masterGainRef.current && audioCtxRef.current) {
+        masterGainRef.current.gain.setTargetAtTime(0, audioCtxRef.current.currentTime, 0.05);
+      }
+    };
+  }, [isPlaying, isMuted, volume, category]);
+
+  // Clean up audio context on unmount
+  useEffect(() => {
+    return () => {
+      if (audioCtxRef.current) {
+        audioCtxRef.current.close().catch(() => {});
+        audioCtxRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -45,11 +134,11 @@ export const ProceduralCanvasVideo: React.FC<ProceduralCanvasVideoProps> = ({
 
       if (isPlaying) {
         localTime += dt * speed;
-        if (localTime > duration) {
+        if (localTime > duration && duration > 0) {
           localTime = 0;
         }
         timeRef.current = localTime;
-        onTimeUpdate(localTime);
+        onTimeUpdateRef.current(localTime);
       }
 
       const w = canvas.width;
@@ -157,16 +246,16 @@ export const ProceduralCanvasVideo: React.FC<ProceduralCanvasVideoProps> = ({
       }
 
       // Minimalist Assembly Cocoa On-Screen Telemetry Overlay
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
-      ctx.fillRect(16, h - 42, 280, 26);
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
-      ctx.strokeRect(16, h - 42, 280, 26);
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+      ctx.fillRect(16, h - 42, 340, 26);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+      ctx.strokeRect(16, h - 42, 340, 26);
 
       ctx.font = '10px "JetBrains Mono", monospace';
       ctx.fillStyle = '#10b981';
-      ctx.fillText('● HARDWARE STREAM OK', 24, h - 25);
+      ctx.fillText('● HARDWARE GENERATIVE OK', 24, h - 25);
       ctx.fillStyle = '#a1a1aa';
-      ctx.fillText(`60FPS · ULTRA BUFFER · 0ms`, 160, h - 25);
+      ctx.fillText(`60FPS · STEREO SYNTH · 0ms`, 180, h - 25);
 
       if (isPlaying) {
         animFrameRef.current = requestAnimationFrame(renderFrame);
@@ -178,7 +267,7 @@ export const ProceduralCanvasVideo: React.FC<ProceduralCanvasVideoProps> = ({
     return () => {
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     };
-  }, [isPlaying, videoId, category, duration, speed, onTimeUpdate]);
+  }, [isPlaying, videoId, category, duration, speed]);
 
   return (
     <canvas
