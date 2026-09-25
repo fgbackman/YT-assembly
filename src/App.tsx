@@ -345,6 +345,12 @@ export default function App() {
     return [...local, ...remoteResults.filter(v => !localIds.has(v.youtubeId))];
   }, [videos, searchQuery, selectedCategory, isOfflineMode, remoteResults]);
 
+  // In-app suggestions shown on the player's pause / end screen
+  const upNextVideos = useMemo(
+    () => filteredVideos.filter(v => v.id !== activeVideo.id).slice(0, 4),
+    [filteredVideos, activeVideo.id]
+  );
+
   // Section visibility helpers
   const isSectionVisible = useCallback((id: PageSectionId) => {
     const sec = sections.find(s => s.id === id);
@@ -736,6 +742,8 @@ export default function App() {
                       onDownloadVideo={handleDownloadVideo}
                       isOfflineMode={isOfflineMode}
                       onOpenPageBuilder={() => setShowPageBuilderModal(true)}
+                      upNextVideos={upNextVideos}
+                      onSelectVideo={handleSelectVideo}
                     />
                   )}
 
@@ -848,6 +856,8 @@ export default function App() {
                     onDownloadVideo={handleDownloadVideo}
                     isOfflineMode={isOfflineMode}
                     onOpenPageBuilder={() => setShowPageBuilderModal(true)}
+                    upNextVideos={upNextVideos}
+                    onSelectVideo={handleSelectVideo}
                   />
                 )}
 
@@ -902,6 +912,8 @@ export default function App() {
                     onDownloadVideo={handleDownloadVideo}
                     isOfflineMode={isOfflineMode}
                     onOpenPageBuilder={() => setShowPageBuilderModal(true)}
+                    upNextVideos={upNextVideos}
+                    onSelectVideo={handleSelectVideo}
                   />
                 )}
                 <div className="flex items-center justify-between text-xs">

@@ -36,6 +36,8 @@ interface VideoPlayerProps {
   onDownloadVideo: (videoId: string) => void;
   isOfflineMode: boolean;
   onOpenPageBuilder?: () => void;
+  upNextVideos?: Video[];
+  onSelectVideo?: (video: Video) => void;
 }
 
 export type PlaybackEngine = 'html5_mp4' | 'youtube_embed' | 'procedural_assembly';
@@ -53,8 +55,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   onDownloadVideo,
   isOfflineMode,
   onOpenPageBuilder,
+  upNextVideos = [],
+  onSelectVideo,
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  // YouTube IFrame API player state: -1 unstarted, 0 ended, 1 playing, 2 paused, 3 buffering, 5 cued
+  const [ytState, setYtState] = useState<number>(-1);
   const containerRef = useRef<HTMLDivElement>(null);
   
   // Engine: procedural_assembly is guaranteed 100% to run instantly with zero CORS issues,
@@ -106,6 +113,38 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     // Live YouTube search results can only play through the official embed
     if (video.source === 'youtube') setEngine('youtube_embed');
   }, [video.id, video.durationSeconds, video.source]);
+
+  // Track the YouTube embed's state so its own "More videos" / end screen
+  // (whose links open youtube.com) can be covered with an in-app overlay.
+  useEffect(() => {
+    if (engine !== 'youtube_embed') return;
+    setYtState(-1);
+
+    const handleMessage = (e: MessageEvent) => {
+      if (e.source !== iframeRef.current?.contentWindow) return;
+      let data: any = e.data;
+      if (typeof data === 'string') {
+        try { data = JSON.parse(data); } catch { return; }
+      }
+      if (data?.event === 'onStateChange' && typeof data.info === 'number') {
+        setYtState(data.info);
+      } else if (data?.event === 'infoDelivery' && typeof data.info?.playerState === 'number') {
+        setYtState(data.info.playerState);
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [engine, video.id]);
+
+  const handleIframeLoad = () => {
+    // Ask the embed to start sending state events to this window
+    iframeRef.current?.contentWindow?.postMessage(JSON.stringify({ event: 'listening', id: video.id }), '*');
+  };
+
+  const sendYtCommand = (func: string, args: unknown[] = []) => {
+    iframeRef.current?.contentWindow?.postMessage(JSON.stringify({ event: 'command', func, args }), '*');
+  };
 
   // SponsorBlock auto-skipping simulation
   useEffect(() => {
@@ -276,12 +315,60 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       {engine === 'youtube_embed' && (
         <div className="w-full h-full relative">
           <iframe
-            src={`https://www.youtube-nocookie.com/embed/${video.youtubeId || 'kJQP7kiw5Fk'}?autoplay=1&mute=0&controls=1&rel=0&modestbranding=1`}
+            ref={iframeRef}
+            key={video.id}
+            src={`https://www.youtube-nocookie.com/embed/${video.youtubeId || 'kJQP7kiw5Fk'}?autoplay=1&mute=0&controls=1&rel=0&modestbranding=1&enablejsapi=1&origin=${encodeURIComponent(window.location.origin)}`}
             title={video.title}
             className="w-full h-full border-0"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+            // No allow-popups / allow-top-navigation: links inside the embed can't take the user to youtube.com
+            sandbox="allow-scripts allow-same-origin allow-presentation"
+            referrerPolicy="strict-origin-when-cross-origin"
             allowFullScreen
+            onLoad={handleIframeLoad}
           />
+
+          {/* In-app pause / end screen that replaces YouTube's outbound "More videos" tiles */}
+          {(ytState === 0 || ytState === 2) && (
+            <div className="absolute inset-0 z-20 bg-black/85 backdrop-blur-sm flex flex-col items-center justify-center gap-4 p-4 pt-12">
+              <button
+                type="button"
+                onClick={() => {
+                  if (ytState === 0) sendYtCommand('seekTo', [0, true]);
+                  sendYtCommand('playVideo');
+                  setYtState(1);
+                }}
+                className="flex items-center gap-2 px-4 py-2 rounded-full bg-rose-600 hover:bg-rose-500 text-white text-sm font-semibold shadow-lg transition-colors"
+              >
+                {ytState === 0 ? <RotateCcw className="w-4 h-4" /> : <Play className="w-4 h-4 fill-white" />}
+                <span>{ytState === 0 ? 'Replay' : 'Resume'}</span>
+              </button>
+
+              {onSelectVideo && upNextVideos.length > 0 && (
+                <div className="w-full max-w-3xl">
+                  <div className="text-[11px] font-mono uppercase tracking-wider text-neutral-400 mb-2 text-center">
+                    Up next in ytasmbrowser
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {upNextVideos.slice(0, 4).map(v => (
+                      <button
+                        key={v.id}
+                        type="button"
+                        onClick={() => onSelectVideo(v)}
+                        className="text-left rounded-lg overflow-hidden bg-white/5 hover:bg-white/10 border border-white/10 transition-colors"
+                      >
+                        <div
+                          className={`aspect-video w-full bg-cover bg-center ${v.thumbnailUrl ? '' : `bg-gradient-to-br ${v.thumbnailGradient}`}`}
+                          style={v.thumbnailUrl ? { backgroundImage: `url(${v.thumbnailUrl})` } : undefined}
+                        />
+                        <div className="p-1.5 text-[11px] leading-tight text-white line-clamp-2">{v.title}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
