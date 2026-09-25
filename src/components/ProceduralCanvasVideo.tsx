@@ -9,6 +9,7 @@ interface ProceduralCanvasVideoProps {
   duration: number;
   onTimeUpdate: (time: number) => void;
   speed: number;
+  showOverlay?: boolean;
 }
 
 export const ProceduralCanvasVideo: React.FC<ProceduralCanvasVideoProps> = ({
@@ -19,12 +20,19 @@ export const ProceduralCanvasVideo: React.FC<ProceduralCanvasVideoProps> = ({
   currentTime,
   duration,
   onTimeUpdate,
-  speed
+  speed,
+  showOverlay = true
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animFrameRef = useRef<number | null>(null);
   const lastTimestampRef = useRef<number>(performance.now());
   const timeRef = useRef<number>(currentTime);
+  const showOverlayRef = useRef<boolean>(showOverlay);
+  const overlayAlphaRef = useRef<number>(showOverlay ? 1 : 0);
+
+  useEffect(() => {
+    showOverlayRef.current = showOverlay;
+  }, [showOverlay]);
 
   useEffect(() => {
     timeRef.current = currentTime;
@@ -156,17 +164,27 @@ export const ProceduralCanvasVideo: React.FC<ProceduralCanvasVideoProps> = ({
         }
       }
 
-      // Minimalist Assembly Cocoa On-Screen Telemetry Overlay
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
-      ctx.fillRect(16, h - 42, 280, 26);
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
-      ctx.strokeRect(16, h - 42, 280, 26);
+      // Minimalist Assembly Cocoa On-Screen Telemetry Overlay (eases in/out)
+      const targetAlpha = showOverlayRef.current || !isPlaying ? 1 : 0;
+      overlayAlphaRef.current = isPlaying
+        ? overlayAlphaRef.current + (targetAlpha - overlayAlphaRef.current) * Math.min(1, dt * 6)
+        : targetAlpha;
 
-      ctx.font = '10px "JetBrains Mono", monospace';
-      ctx.fillStyle = '#10b981';
-      ctx.fillText('● HARDWARE STREAM OK', 24, h - 25);
-      ctx.fillStyle = '#a1a1aa';
-      ctx.fillText(`60FPS · ULTRA BUFFER · 0ms`, 160, h - 25);
+      if (overlayAlphaRef.current > 0.01) {
+        ctx.save();
+        ctx.globalAlpha = overlayAlphaRef.current;
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+        ctx.fillRect(16, h - 42, 280, 26);
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+        ctx.strokeRect(16, h - 42, 280, 26);
+
+        ctx.font = '10px "JetBrains Mono", monospace';
+        ctx.fillStyle = '#10b981';
+        ctx.fillText('● HARDWARE STREAM OK', 24, h - 25);
+        ctx.fillStyle = '#a1a1aa';
+        ctx.fillText(`60FPS · ULTRA BUFFER · 0ms`, 160, h - 25);
+        ctx.restore();
+      }
 
       if (isPlaying) {
         animFrameRef.current = requestAnimationFrame(renderFrame);
