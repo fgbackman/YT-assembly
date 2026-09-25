@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect, useCallback } from 'react';
+import React, { useRef, useState, useEffect, useCallback, memo } from 'react';
 import { 
   Play, 
   Pause, 
@@ -42,7 +42,7 @@ interface VideoPlayerProps {
 
 export type PlaybackEngine = 'html5_mp4' | 'youtube_embed' | 'procedural_assembly';
 
-export const VideoPlayer: React.FC<VideoPlayerProps> = ({
+export const VideoPlayer = memo<VideoPlayerProps>(function VideoPlayer({
   video,
   isDarkMode,
   adBlockStats,
@@ -55,9 +55,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   onDownloadVideo,
   isOfflineMode,
   onOpenPageBuilder,
-  upNextVideos = [],
-  onSelectVideo,
-}) => {
+}) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   // YouTube IFrame API player state: -1 unstarted, 0 ended, 1 playing, 2 paused, 3 buffering, 5 cued
@@ -91,6 +89,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   });
 
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const handleEngineTimeUpdate = useCallback((t: number) => {
+    setCurrentTime(t);
+    onTimeUpdateSync?.(t);
+  }, [onTimeUpdateSync]);
 
   // Sync seek time if passed
   useEffect(() => {
@@ -272,13 +275,31 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
-  const handleMouseMove = () => {
-    setIsHovered(true);
+  const scheduleOverlayHide = useCallback(() => {
     if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
     controlsTimeoutRef.current = setTimeout(() => {
       if (isPlaying) setIsHovered(false);
     }, 2800);
+  }, [isPlaying]);
+
+  const handleMouseMove = () => {
+    setIsHovered(true);
+    scheduleOverlayHide();
   };
+
+  // Show the overlay when a video starts or playback resumes, then fade it out after a moment
+  useEffect(() => {
+    setIsHovered(true);
+    scheduleOverlayHide();
+    return () => {
+      if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+    };
+  }, [scheduleOverlayHide, video.id]);
+
+  const overlayVisible = isHovered || !isPlaying || showBufferInspector || showSettingsMenu;
+  const overlayFadeClass = `transition-opacity duration-500 ${
+    overlayVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
+  }`;
 
   const currentPercentage = Math.min(100, (currentTime / (duration || 1)) * 100);
 
@@ -303,11 +324,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             isPlaying={isPlaying}
             currentTime={currentTime}
             duration={duration}
-            onTimeUpdate={(t) => {
-              setCurrentTime(t);
-              if (onTimeUpdateSync) onTimeUpdateSync(t);
-            }}
+            onTimeUpdate={handleEngineTimeUpdate}
             speed={playbackRate}
+            showOverlay={overlayVisible}
           />
         </div>
       )}
@@ -384,7 +403,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       )}
 
       {/* Top Left: Cocoa AdShield Indicator & Engine Selector */}
-      <div className="absolute top-3 left-3 z-30 flex items-center gap-2">
+      <div className={`absolute top-3 left-3 z-30 flex items-center gap-2 ${overlayFadeClass}`}>
         <div className="px-2.5 py-1 rounded-md text-[10px] font-mono flex items-center gap-1.5 shadow-md backdrop-blur-md border bg-emerald-950/80 border-emerald-500/40 text-emerald-300">
           <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
           <span>AD-FREE ASSEMBLY ENGINE</span>
@@ -424,7 +443,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       </div>
 
       {/* Top Right: Buffer & Speed Status */}
-      <div className="absolute top-3 right-3 z-30 flex items-center gap-2">
+      <div className={`absolute top-3 right-3 z-30 flex items-center gap-2 ${overlayFadeClass}`}>
         <button
           type="button"
           onClick={() => setShowBufferInspector(!showBufferInspector)}
@@ -506,9 +525,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       {/* Bottom Controls Bar (Rendered for procedural & mp4) */}
       {engine !== 'youtube_embed' && (
         <div 
-          className={`absolute bottom-0 inset-x-0 z-30 pt-8 pb-3 px-4 bg-gradient-to-t from-black/95 via-black/60 to-transparent transition-opacity duration-200 ${
-            isHovered || !isPlaying ? 'opacity-100' : 'opacity-0 pointer-events-none'
-          }`}
+          className={`absolute bottom-0 inset-x-0 z-30 pt-8 pb-3 px-4 bg-gradient-to-t from-black/95 via-black/60 to-transparent ${overlayFadeClass}`}
         >
           {/* Scrubber */}
           <div className="relative w-full h-4 flex items-center group/scrubber cursor-pointer mb-2">
@@ -648,4 +665,4 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       )}
     </div>
   );
-};
+});

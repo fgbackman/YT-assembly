@@ -1,17 +1,20 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense } from 'react';
 import { CocoaTitlebar } from './components/CocoaTitlebar';
 import { CocoaStatusFooter } from './components/CocoaStatusFooter';
 import { VideoPlayer } from './components/VideoPlayer';
 import { VideoInfoBar } from './components/VideoInfoBar';
 import { SearchAndFilters } from './components/SearchAndFilters';
 import { FrontPageGrid } from './components/FrontPageGrid';
-import { DeviceSyncModal } from './components/DeviceSyncModal';
-import { OfflineManagerModal } from './components/OfflineManagerModal';
-import { SocialShareModal } from './components/SocialShareModal';
-import { NotificationSettingsModal } from './components/NotificationSettingsModal';
-import { AdBlockModal } from './components/AdBlockModal';
-import { PageBuilderModal } from './components/PageBuilderModal';
-import { DownloadFilesModal } from './components/DownloadFilesModal';
+
+// Modals are code-split and only mounted while open, keeping them (and JSZip)
+// out of the initial bundle and out of every App re-render.
+const DeviceSyncModal = lazy(() => import('./components/DeviceSyncModal').then(m => ({ default: m.DeviceSyncModal })));
+const OfflineManagerModal = lazy(() => import('./components/OfflineManagerModal').then(m => ({ default: m.OfflineManagerModal })));
+const SocialShareModal = lazy(() => import('./components/SocialShareModal').then(m => ({ default: m.SocialShareModal })));
+const NotificationSettingsModal = lazy(() => import('./components/NotificationSettingsModal').then(m => ({ default: m.NotificationSettingsModal })));
+const AdBlockModal = lazy(() => import('./components/AdBlockModal').then(m => ({ default: m.AdBlockModal })));
+const PageBuilderModal = lazy(() => import('./components/PageBuilderModal').then(m => ({ default: m.PageBuilderModal })));
+const DownloadFilesModal = lazy(() => import('./components/DownloadFilesModal').then(m => ({ default: m.DownloadFilesModal })));
 import { 
   INITIAL_VIDEOS, 
   MOCK_COMMENTS, 
@@ -315,6 +318,15 @@ export default function App() {
     };
   }, [searchQuery, isOfflineMode]);
 
+  // Lowercased search text per video, rebuilt only when the catalog changes
+  const searchIndex = useMemo(() => {
+    const index = new Map<string, string>();
+    for (const v of videos) {
+      index.set(v.id, `${v.title} ${v.channel} ${v.description} ${v.tags.join(' ')}`.toLowerCase());
+    }
+    return index;
+  }, [videos]);
+
   // Filtered videos based on search, category, and offline mode
   const filteredVideos = useMemo(() => {
     const terms = searchQuery.toLowerCase().split(/\s+/).filter(Boolean);
@@ -332,7 +344,7 @@ export default function App() {
 
       if (terms.length) {
         // Every word must appear somewhere (title, channel, description or tags)
-        const haystack = `${v.title} ${v.channel} ${v.description} ${v.tags.join(' ')}`.toLowerCase();
+        const haystack = searchIndex.get(v.id) ?? '';
         return terms.every(t => haystack.includes(t));
       }
 
@@ -343,7 +355,12 @@ export default function App() {
     if (!terms.length || selectedCategory !== 'All' || isOfflineMode) return local;
     const localIds = new Set(local.map(v => v.youtubeId));
     return [...local, ...remoteResults.filter(v => !localIds.has(v.youtubeId))];
-  }, [videos, searchQuery, selectedCategory, isOfflineMode, remoteResults]);
+  }, [videos, searchIndex, searchQuery, selectedCategory, isOfflineMode, remoteResults]);
+
+  const upNextVideos = useMemo(
+    () => filteredVideos.filter(v => v.id !== activeVideo.id).slice(0, 6),
+    [filteredVideos, activeVideo.id]
+  );
 
   // In-app suggestions shown on the player's pause / end screen
   const upNextVideos = useMemo(
@@ -423,8 +440,21 @@ export default function App() {
   }, []);
 
   // Handlers
-  const handleToggleDarkMode = () => setIsDarkMode(prev => !prev);
-  const handleToggleOfflineMode = () => setIsOfflineMode(prev => !prev);
+  const handleToggleDarkMode = useCallback(() => setIsDarkMode(prev => !prev), []);
+  const handleToggleOfflineMode = useCallback(() => setIsOfflineMode(prev => !prev), []);
+  const handleToggleMaximizeWindow = useCallback(() => setIsWindowMaximized(prev => !prev), []);
+
+  // Stable modal openers so memoized children don't re-render on every App update
+  const openAdBlockModal = useCallback(() => setShowAdBlockModal(true), []);
+  const openDeviceSync = useCallback(() => setShowDeviceSyncModal(true), []);
+  const openOfflineManager = useCallback(() => setShowOfflineModal(true), []);
+  const openNotifications = useCallback(() => setShowNotificationsModal(true), []);
+  const openPageBuilder = useCallback(() => setShowPageBuilderModal(true), []);
+  const openDownloadFiles = useCallback(() => setShowDownloadFilesModal(true), []);
+
+  // Players report time several times a second; App only needs whole seconds
+  // (for handoff/share), and React skips the re-render when the value is unchanged.
+  const handleTimeUpdateSync = useCallback((t: number) => setCurrentTime(Math.floor(t)), []);
 
   const handleSelectVideo = useCallback((video: Video) => {
     setActiveVideo(video);
@@ -493,10 +523,14 @@ export default function App() {
     setVideos(prev => prev.map(v => ({ ...v, isOffline: false, offlineSizeMb: undefined })));
   }, []);
 
-  const handleOpenShare = useCallback((videoToShare?: Video) => {
-    setShareVideoTarget(videoToShare || activeVideo);
+  const handleOpenShare = useCallback((videoToShare: Video) => {
+    setShareVideoTarget(videoToShare);
     setShowShareModal(true);
-  }, [activeVideo]);
+  }, []);
+
+  const handleOpenShareActive = useCallback(() => {
+    handleOpenShare(activeVideo);
+  }, [handleOpenShare, activeVideo]);
 
   const handleHandoffToDevice = useCallback((targetDevice: SyncDevice) => {
     try {
@@ -555,7 +589,7 @@ export default function App() {
     }));
   }, []);
 
-  const handleAddComment = (text: string) => {
+  const handleAddComment = useCallback((text: string) => {
     const newComment: Comment = {
       id: `comm-${Date.now()}`,
       author: 'Assembly Host User',
@@ -566,9 +600,9 @@ export default function App() {
       isLiked: true,
     };
     setComments(prev => [newComment, ...prev]);
-  };
+  }, []);
 
-  const handleToggleLikeComment = (commentId: string) => {
+  const handleToggleLikeComment = useCallback((commentId: string) => {
     setComments(prev => prev.map(c => {
       if (c.id === commentId) {
         const isLiked = !c.isLiked;
@@ -580,18 +614,19 @@ export default function App() {
       }
       return c;
     }));
-  };
+  }, []);
 
-  const handleMarkAllNotificationsRead = () => {
+  const handleMarkAllNotificationsRead = useCallback(() => {
     setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
-  };
+  }, []);
 
-  const handleSelectVideoById = (id: string) => {
+  const handleSelectVideoById = useCallback((id: string) => {
     const v = videos.find(item => item.id === id);
     if (v) handleSelectVideo(v);
-  };
+  }, [videos, handleSelectVideo]);
 
-  const unreadNotifCount = notifications.filter(n => !n.isRead).length;
+  const unreadNotifCount = useMemo(() => notifications.filter(n => !n.isRead).length, [notifications]);
+  const activeDevice = useMemo(() => devices.find(d => d.isCurrentDevice), [devices]);
 
   return (
     <div className={`min-h-screen p-2 sm:p-4 lg:p-6 transition-colors duration-200 flex flex-col items-center justify-center ${
@@ -616,20 +651,20 @@ export default function App() {
           isOfflineMode={isOfflineMode}
           onToggleOfflineMode={handleToggleOfflineMode}
           adBlockStats={adBlockStats}
-          onOpenAdBlockModal={() => setShowAdBlockModal(true)}
-          onOpenDeviceSync={() => setShowDeviceSyncModal(true)}
-          onOpenOfflineManager={() => setShowOfflineModal(true)}
-          onOpenNotifications={() => setShowNotificationsModal(true)}
-          onOpenShareModal={() => handleOpenShare(activeVideo)}
-          onOpenSettings={() => setShowNotificationsModal(true)}
-          onOpenPageBuilder={() => setShowPageBuilderModal(true)}
-          onOpenDownloadFiles={() => setShowDownloadFilesModal(true)}
+          onOpenAdBlockModal={openAdBlockModal}
+          onOpenDeviceSync={openDeviceSync}
+          onOpenOfflineManager={openOfflineManager}
+          onOpenNotifications={openNotifications}
+          onOpenShareModal={handleOpenShareActive}
+          onOpenSettings={openNotifications}
+          onOpenPageBuilder={openPageBuilder}
+          onOpenDownloadFiles={openDownloadFiles}
           unreadNotificationsCount={unreadNotifCount}
           syncedDeviceCount={devices.length}
           activeLayoutMode={activeLayoutMode}
           onChangeLayoutMode={setActiveLayoutMode}
           isWindowMaximized={isWindowMaximized}
-          onToggleMaximizeWindow={() => setIsWindowMaximized(!isWindowMaximized)}
+          onToggleMaximizeWindow={handleToggleMaximizeWindow}
         />
 
         {/* Cocoa Main Window Content Body */}
@@ -648,7 +683,7 @@ export default function App() {
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => setShowDownloadFilesModal(true)}
+                onClick={openDownloadFiles}
                 className="px-2.5 py-1 rounded bg-sky-600/20 hover:bg-sky-600/30 text-sky-300 border border-sky-500/30 text-[11px] font-medium flex items-center gap-1.5 transition-colors"
                 title="Download all project files (.zip) for macOS"
               >
@@ -658,7 +693,7 @@ export default function App() {
 
               <button
                 type="button"
-                onClick={() => setShowPageBuilderModal(true)}
+                onClick={openPageBuilder}
                 className="px-2.5 py-1 rounded bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 text-[11px] font-medium flex items-center gap-1.5 transition-colors"
               >
                 <Sliders className="w-3 h-3" />
@@ -667,7 +702,7 @@ export default function App() {
 
               <button
                 type="button"
-                onClick={() => setShowPageBuilderModal(true)}
+                onClick={openPageBuilder}
                 className="px-2.5 py-1 rounded bg-white/10 hover:bg-white/20 text-white text-[11px] font-medium flex items-center gap-1.5 transition-colors"
               >
                 <Plus className="w-3 h-3" />
@@ -735,15 +770,13 @@ export default function App() {
                       adBlockStats={adBlockStats}
                       onAdBlocked={handleAdBlocked}
                       onSponsorSkipped={handleSponsorSkipped}
-                      onTimeUpdateSync={setCurrentTime}
+                      onTimeUpdateSync={handleTimeUpdateSync}
                       initialSeekTime={initialSeekTime}
-                      onOpenShareModal={() => handleOpenShare(activeVideo)}
+                      onOpenShareModal={handleOpenShareActive}
                       onToggleLike={handleToggleLike}
                       onDownloadVideo={handleDownloadVideo}
                       isOfflineMode={isOfflineMode}
-                      onOpenPageBuilder={() => setShowPageBuilderModal(true)}
-                      upNextVideos={upNextVideos}
-                      onSelectVideo={handleSelectVideo}
+                      onOpenPageBuilder={openPageBuilder}
                     />
                   )}
 
@@ -752,9 +785,9 @@ export default function App() {
                       video={activeVideo}
                       isDarkMode={isDarkMode}
                       onToggleLike={handleToggleLike}
-                      onOpenShareModal={() => handleOpenShare(activeVideo)}
+                      onOpenShareModal={handleOpenShareActive}
                       onDownloadVideo={handleDownloadVideo}
-                      onOpenDeviceSync={() => setShowDeviceSyncModal(true)}
+                      onOpenDeviceSync={openDeviceSync}
                       comments={comments}
                       onAddComment={handleAddComment}
                       onToggleLikeComment={handleToggleLikeComment}
@@ -775,10 +808,7 @@ export default function App() {
                     </div>
 
                     <div className="space-y-2.5 max-h-[620px] overflow-y-auto pr-1">
-                      {filteredVideos
-                        .filter(v => v.id !== activeVideo.id)
-                        .slice(0, 6)
-                        .map(v => (
+                      {upNextVideos.map(v => (
                           <div
                             key={v.id}
                             onClick={() => handleSelectVideo(v)}
@@ -828,7 +858,7 @@ export default function App() {
                     onSelectVideo={handleSelectVideo}
                     onDownloadVideo={handleDownloadVideo}
                     onOpenShareModal={handleOpenShare}
-                    onOpenDeviceSync={() => setShowDeviceSyncModal(true)}
+                    onOpenDeviceSync={openDeviceSync}
                     isDarkMode={isDarkMode}
                     isSearching={isSearching}
                     title="Front Page Stream Catalog"
@@ -849,15 +879,13 @@ export default function App() {
                     adBlockStats={adBlockStats}
                     onAdBlocked={handleAdBlocked}
                     onSponsorSkipped={handleSponsorSkipped}
-                    onTimeUpdateSync={setCurrentTime}
+                    onTimeUpdateSync={handleTimeUpdateSync}
                     initialSeekTime={initialSeekTime}
-                    onOpenShareModal={() => handleOpenShare(activeVideo)}
+                    onOpenShareModal={handleOpenShareActive}
                     onToggleLike={handleToggleLike}
                     onDownloadVideo={handleDownloadVideo}
                     isOfflineMode={isOfflineMode}
-                    onOpenPageBuilder={() => setShowPageBuilderModal(true)}
-                    upNextVideos={upNextVideos}
-                    onSelectVideo={handleSelectVideo}
+                    onOpenPageBuilder={openPageBuilder}
                   />
                 )}
 
@@ -866,9 +894,9 @@ export default function App() {
                     video={activeVideo}
                     isDarkMode={isDarkMode}
                     onToggleLike={handleToggleLike}
-                    onOpenShareModal={() => handleOpenShare(activeVideo)}
+                    onOpenShareModal={handleOpenShareActive}
                     onDownloadVideo={handleDownloadVideo}
-                    onOpenDeviceSync={() => setShowDeviceSyncModal(true)}
+                    onOpenDeviceSync={openDeviceSync}
                     comments={comments}
                     onAddComment={handleAddComment}
                     onToggleLikeComment={handleToggleLikeComment}
@@ -884,7 +912,7 @@ export default function App() {
                     onSelectVideo={handleSelectVideo}
                     onDownloadVideo={handleDownloadVideo}
                     onOpenShareModal={handleOpenShare}
-                    onOpenDeviceSync={() => setShowDeviceSyncModal(true)}
+                    onOpenDeviceSync={openDeviceSync}
                     isDarkMode={isDarkMode}
                     isSearching={isSearching}
                     title="Front Page Stream Catalog"
@@ -905,15 +933,13 @@ export default function App() {
                     adBlockStats={adBlockStats}
                     onAdBlocked={handleAdBlocked}
                     onSponsorSkipped={handleSponsorSkipped}
-                    onTimeUpdateSync={setCurrentTime}
+                    onTimeUpdateSync={handleTimeUpdateSync}
                     initialSeekTime={initialSeekTime}
-                    onOpenShareModal={() => handleOpenShare(activeVideo)}
+                    onOpenShareModal={handleOpenShareActive}
                     onToggleLike={handleToggleLike}
                     onDownloadVideo={handleDownloadVideo}
                     isOfflineMode={isOfflineMode}
-                    onOpenPageBuilder={() => setShowPageBuilderModal(true)}
-                    upNextVideos={upNextVideos}
-                    onSelectVideo={handleSelectVideo}
+                    onOpenPageBuilder={openPageBuilder}
                   />
                 )}
                 <div className="flex items-center justify-between text-xs">
@@ -930,7 +956,7 @@ export default function App() {
                     onSelectVideo={handleSelectVideo}
                     onDownloadVideo={handleDownloadVideo}
                     onOpenShareModal={handleOpenShare}
-                    onOpenDeviceSync={() => setShowDeviceSyncModal(true)}
+                    onOpenDeviceSync={openDeviceSync}
                     isDarkMode={isDarkMode}
                     isSearching={isSearching}
                     title="Front Page Feed"
@@ -947,16 +973,17 @@ export default function App() {
             isDarkMode={isDarkMode}
             isOfflineMode={isOfflineMode}
             adsBlocked={adBlockStats.adsBlockedCount}
-            activeDevice={devices.find(d => d.isCurrentDevice)}
-            onOpenDeviceSync={() => setShowDeviceSyncModal(true)}
-            onOpenOfflineManager={() => setShowOfflineModal(true)}
+            activeDevice={activeDevice}
+            onOpenDeviceSync={openDeviceSync}
+            onOpenOfflineManager={openOfflineManager}
           />
         )}
       </div>
 
       {/* Floating Modals */}
-      <PageBuilderModal
-        isOpen={showPageBuilderModal}
+      <Suspense fallback={null}>
+      {showPageBuilderModal && <PageBuilderModal
+        isOpen
         onClose={() => setShowPageBuilderModal(false)}
         sections={sections}
         onToggleSection={handleToggleSection}
@@ -964,10 +991,10 @@ export default function App() {
         onResetSections={handleResetSections}
         onAddCustomVideo={handleAddCustomVideo}
         isDarkMode={isDarkMode}
-      />
+      />}
 
-      <DeviceSyncModal
-        isOpen={showDeviceSyncModal}
+      {showDeviceSyncModal && <DeviceSyncModal
+        isOpen
         onClose={() => setShowDeviceSyncModal(false)}
         devices={devices}
         currentVideo={activeVideo}
@@ -975,10 +1002,10 @@ export default function App() {
         onHandoffToDevice={handleHandoffToDevice}
         onResumeFromDevice={handleResumeFromDevice}
         isDarkMode={isDarkMode}
-      />
+      />}
 
-      <OfflineManagerModal
-        isOpen={showOfflineModal}
+      {showOfflineModal && <OfflineManagerModal
+        isOpen
         onClose={() => setShowOfflineModal(false)}
         videos={videos}
         isOfflineMode={isOfflineMode}
@@ -987,18 +1014,18 @@ export default function App() {
         onRemoveDownload={handleRemoveDownload}
         onClearAllDownloads={handleClearAllDownloads}
         isDarkMode={isDarkMode}
-      />
+      />}
 
-      <SocialShareModal
-        isOpen={showShareModal}
+      {showShareModal && <SocialShareModal
+        isOpen
         onClose={() => setShowShareModal(false)}
         video={shareVideoTarget}
         currentTime={currentTime}
         isDarkMode={isDarkMode}
-      />
+      />}
 
-      <NotificationSettingsModal
-        isOpen={showNotificationsModal}
+      {showNotificationsModal && <NotificationSettingsModal
+        isOpen
         onClose={() => setShowNotificationsModal(false)}
         notifications={notifications}
         settings={notificationSettings}
@@ -1006,22 +1033,23 @@ export default function App() {
         onMarkAllRead={handleMarkAllNotificationsRead}
         onSelectVideoById={handleSelectVideoById}
         isDarkMode={isDarkMode}
-      />
+      />}
 
-      <AdBlockModal
-        isOpen={showAdBlockModal}
+      {showAdBlockModal && <AdBlockModal
+        isOpen
         onClose={() => setShowAdBlockModal(false)}
         stats={adBlockStats}
         onToggleAdShield={() => setAdBlockStats(p => ({ ...p, isEnabled: !p.isEnabled }))}
         onToggleSkipSponsors={() => setAdBlockStats(p => ({ ...p, skipSponsors: !p.skipSponsors }))}
         isDarkMode={isDarkMode}
-      />
+      />}
 
-      <DownloadFilesModal
-        isOpen={showDownloadFilesModal}
+      {showDownloadFilesModal && <DownloadFilesModal
+        isOpen
         onClose={() => setShowDownloadFilesModal(false)}
         isDarkMode={isDarkMode}
-      />
+      />}
+      </Suspense>
     </div>
   );
 }

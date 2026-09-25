@@ -12,7 +12,6 @@ import {
   Sparkles,
   HardDrive
 } from 'lucide-react';
-import JSZip from 'jszip';
 
 interface DownloadFilesModalProps {
   isOpen: boolean;
@@ -34,6 +33,8 @@ export const DownloadFilesModal: React.FC<DownloadFilesModalProps> = ({
   const handleDownloadFullZip = async () => {
     setIsGeneratingZip(true);
     try {
+      // Loaded on demand so JSZip stays out of the initial bundle
+      const { default: JSZip } = await import('jszip');
       const zip = new JSZip();
 
       // Project configurations
@@ -173,17 +174,17 @@ npm run dev
         'src/components/PageBuilderModal.tsx'
       ];
 
-      for (const filepath of filesToFetch) {
+      await Promise.all(filesToFetch.map(async (filepath) => {
         try {
           const res = await fetch(`/${filepath}`);
-          if (res.ok) {
-            const content = await res.text();
-            zip.file(filepath, content);
+          // Skip the SPA fallback page served for sources that aren't deployed
+          if (res.ok && !res.headers.get('content-type')?.includes('text/html')) {
+            zip.file(filepath, await res.text());
           }
         } catch {
           // If browser environment prevents direct relative source fetch
         }
-      }
+      }));
 
       // Generate the zip blob
       const content = await zip.generateAsync({ type: 'blob' });

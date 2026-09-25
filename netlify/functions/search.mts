@@ -52,9 +52,12 @@ async function searchViaScrape(query: string): Promise<SearchResult[]> {
   if (!res.ok) throw new Error(`YouTube responded ${res.status}`);
   const html = await res.text();
 
-  const match = html.match(/var ytInitialData\s*=\s*(\{.+?\});\s*<\/script>/s);
-  if (!match) throw new Error('Could not parse YouTube results');
-  const data = JSON.parse(match[1]);
+  // indexOf is much cheaper than a lazy regex over the ~1MB results page
+  const marker = html.indexOf('var ytInitialData');
+  const start = marker === -1 ? -1 : html.indexOf('{', marker);
+  const end = start === -1 ? -1 : html.indexOf('</script>', start);
+  if (end === -1) throw new Error('Could not parse YouTube results');
+  const data = JSON.parse(html.slice(start, end).trimEnd().replace(/;$/, ''));
 
   const renderers: any[] = [];
   collectVideoRenderers(data?.contents, renderers);

@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, memo } from 'react';
 import { Search, X, DownloadCloud, Sparkles, Filter, Loader2 } from 'lucide-react';
 
 interface SearchAndFiltersProps {
@@ -23,7 +23,7 @@ const CATEGORIES = [
   'Science'
 ];
 
-export const SearchAndFilters: React.FC<SearchAndFiltersProps> = ({
+const SearchAndFiltersImpl: React.FC<SearchAndFiltersProps> = ({
   searchQuery,
   onSearchChange,
   selectedCategory,
@@ -126,3 +126,5 @@ export const SearchAndFilters: React.FC<SearchAndFiltersProps> = ({
     </div>
   );
 };
+
+export const SearchAndFilters = memo(SearchAndFiltersImpl);
