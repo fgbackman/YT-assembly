@@ -357,14 +357,9 @@ export default function App() {
     return [...local, ...remoteResults.filter(v => !localIds.has(v.youtubeId))];
   }, [videos, searchIndex, searchQuery, selectedCategory, isOfflineMode, remoteResults]);
 
+  // Shown in the Up Next queue and on the player's in-app pause / end screen
   const upNextVideos = useMemo(
     () => filteredVideos.filter(v => v.id !== activeVideo.id).slice(0, 6),
-    [filteredVideos, activeVideo.id]
-  );
-
-  // In-app suggestions shown on the player's pause / end screen
-  const upNextVideos = useMemo(
-    () => filteredVideos.filter(v => v.id !== activeVideo.id).slice(0, 4),
     [filteredVideos, activeVideo.id]
   );
 
@@ -777,6 +772,8 @@ export default function App() {
                       onDownloadVideo={handleDownloadVideo}
                       isOfflineMode={isOfflineMode}
                       onOpenPageBuilder={openPageBuilder}
+                      upNextVideos={upNextVideos}
+                      onSelectVideo={handleSelectVideo}
                     />
                   )}
 
@@ -886,6 +883,8 @@ export default function App() {
                     onDownloadVideo={handleDownloadVideo}
                     isOfflineMode={isOfflineMode}
                     onOpenPageBuilder={openPageBuilder}
+                    upNextVideos={upNextVideos}
+                    onSelectVideo={handleSelectVideo}
                   />
                 )}
 
@@ -940,6 +939,8 @@ export default function App() {
                     onDownloadVideo={handleDownloadVideo}
                     isOfflineMode={isOfflineMode}
                     onOpenPageBuilder={openPageBuilder}
+                    upNextVideos={upNextVideos}
+                    onSelectVideo={handleSelectVideo}
                   />
                 )}
                 <div className="flex items-center justify-between text-xs">
