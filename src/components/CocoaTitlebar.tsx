@@ -63,16 +63,16 @@ const CocoaTitlebarImpl: React.FC<CocoaTitlebarProps> = ({
   const [trafficHovered, setTrafficHovered] = useState(false);
 
   return (
-    <header className={`h-11 px-3.5 flex items-center justify-between select-none border-b transition-colors duration-200 ${
+    <header className={`h-11 px-2 sm:px-3.5 gap-2 flex items-center justify-between select-none border-b transition-colors duration-200 ${
       isDarkMode 
         ? 'bg-[#18191d]/90 backdrop-blur-xl border-white/[0.08] text-neutral-200' 
         : 'bg-[#f4f5f8]/95 backdrop-blur-xl border-black/[0.08] text-neutral-800'
     }`}>
       {/* Zone 1: Traffic Lights + Bespoke Cocoa Assembly App Icon + Window Title */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 min-w-0">
         {/* macOS Traffic Lights with hover glyphs */}
         <div 
-          className="flex items-center gap-2 group mr-1"
+          className="hidden sm:flex items-center gap-2 group mr-1"
           onMouseEnter={() => setTrafficHovered(true)}
           onMouseLeave={() => setTrafficHovered(false)}
         >
@@ -123,7 +123,7 @@ const CocoaTitlebarImpl: React.FC<CocoaTitlebarProps> = ({
           </div>
 
           {/* Window Title & Document Proxy */}
-          <div className="flex items-center gap-1.5 text-xs font-semibold tracking-tight">
+          <div className="hidden sm:flex items-center gap-1.5 text-xs font-semibold tracking-tight">
             <span className={isDarkMode ? 'text-neutral-200' : 'text-neutral-900'}>Assembly Player</span>
             <span className="text-[10px] text-neutral-400 font-mono font-normal">v3.4-cocoa</span>
           </div>
@@ -173,7 +173,7 @@ const CocoaTitlebarImpl: React.FC<CocoaTitlebarProps> = ({
       </div>
 
       {/* Zone 3: Cocoa Window Actions (AdShield, Device Sync, Offline, Notifications, Dark Mode) */}
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
         {/* AdBlock Shield Indicator Button */}
         <button
           type="button"
@@ -251,7 +251,7 @@ const CocoaTitlebarImpl: React.FC<CocoaTitlebarProps> = ({
           type="button"
           onClick={onOpenShareModal}
           title="Share Video & Export"
-          className={`h-7 w-7 rounded-md flex items-center justify-center transition-colors border ${
+          className={`hidden sm:flex h-7 w-7 rounded-md items-center justify-center transition-colors border ${
             isDarkMode 
               ? 'border-white/[0.08] hover:bg-white/[0.05] text-neutral-300' 
               : 'border-black/[0.08] hover:bg-black/[0.05] text-neutral-600'
@@ -265,7 +265,7 @@ const CocoaTitlebarImpl: React.FC<CocoaTitlebarProps> = ({
           type="button"
           onClick={onOpenDownloadFiles}
           title="Download Project Files (.ZIP for macOS)"
-          className={`h-7 px-2 rounded-md flex items-center gap-1.5 text-xs font-medium transition-colors border ${
+          className={`hidden sm:flex h-7 px-2 rounded-md items-center gap-1.5 text-xs font-medium transition-colors border ${
             isDarkMode 
               ? 'bg-sky-950/40 border-sky-500/40 text-sky-300 hover:bg-sky-900/40' 
               : 'bg-sky-50 border-sky-200 text-sky-700 hover:bg-sky-100'

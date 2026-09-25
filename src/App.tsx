@@ -655,15 +655,15 @@ export default function App() {
   const activeDevice = useMemo(() => devices.find(d => d.isCurrentDevice), [devices]);
 
   return (
-    <div className={`min-h-screen p-2 sm:p-4 lg:p-6 transition-colors duration-200 flex flex-col items-center justify-center ${
+    <div className={`min-h-screen p-0 sm:p-4 lg:p-6 transition-colors duration-200 flex flex-col items-center justify-center ${
       isDarkMode ? 'bg-[#0f1013] text-neutral-100' : 'bg-[#e7e9ee] text-neutral-900'
     }`}>
       {/* Assembly Cocoa Window Enclosure */}
       <div 
-        className={`w-full transition-all duration-200 rounded-2xl flex flex-col overflow-hidden border shadow-2xl ${
+        className={`w-full transition-all duration-200 rounded-none sm:rounded-2xl flex flex-col overflow-hidden border shadow-2xl ${
           isWindowMaximized 
             ? 'fixed inset-2 z-50 rounded-lg max-w-none h-[calc(100vh-16px)]' 
-            : 'max-w-[1540px] max-h-[96vh]'
+            : 'max-w-[1540px] min-h-screen sm:min-h-0 sm:max-h-[96vh] border-0 sm:border'
         } ${
           isDarkMode 
             ? 'bg-[#121316] border-white/[0.12] shadow-[0_30px_70px_-15px_rgba(0,0,0,0.8)]' 
@@ -694,19 +694,19 @@ export default function App() {
         />
 
         {/* Cocoa Main Window Content Body */}
-        <main className="flex-1 overflow-y-auto p-4 sm:p-5 lg:p-6 space-y-6">
+        <main className="flex-1 overflow-y-auto p-2.5 sm:p-5 lg:p-6 space-y-4 sm:space-y-6">
           <div id="assembly-stage-top" />
 
           {/* Quick Page Builder Floating Bar (Always enables user to add streams or toggle elements) */}
-          <div className="flex items-center justify-between px-3 py-1.5 rounded-lg border text-xs bg-white/[0.02] border-white/10">
-            <div className="flex items-center gap-2">
+          <div className="flex items-center justify-between gap-2 px-2 sm:px-3 py-1.5 rounded-lg border text-xs bg-white/[0.02] border-white/10">
+            <div className="hidden sm:flex items-center gap-2 min-w-0">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
               <span className="font-mono text-neutral-300 font-semibold text-[11px]">
                 Ultra-Fast Hardware Pipeline (Zero Hosting Required · 60FPS Instant Play)
               </span>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 sm:gap-2 ml-auto">
               <button
                 type="button"
                 onClick={openDownloadFiles}
@@ -714,7 +714,8 @@ export default function App() {
                 title="Download all project files (.zip) for macOS"
               >
                 <DownloadCloud className="w-3 h-3" />
-                <span>Download Files (.ZIP)</span>
+                <span className="hidden sm:inline">Download Files (.ZIP)</span>
+                <span className="sm:hidden">.ZIP</span>
               </button>
 
               <button
@@ -723,7 +724,8 @@ export default function App() {
                 className="px-2.5 py-1 rounded bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 text-[11px] font-medium flex items-center gap-1.5 transition-colors"
               >
                 <Sliders className="w-3 h-3" />
-                <span>Build / Hide Parts</span>
+                <span className="hidden sm:inline">Build / Hide Parts</span>
+                <span className="sm:hidden">Build</span>
               </button>
 
               <button
