@@ -47,7 +47,31 @@ export const PageBuilderModal: React.FC<PageBuilderModalProps> = ({
   const [newCategory, setNewCategory] = useState<CustomVideoInput['category']>('Tech');
   const [newVideoUrl, setNewVideoUrl] = useState('');
   const [newDescription, setNewDescription] = useState('');
+  const [isFetchingMeta, setIsFetchingMeta] = useState(false);
   const [addedToast, setAddedToast] = useState(false);
+
+  // Auto-fetch YouTube metadata when URL is pasted
+  const handleUrlBlur = async () => {
+    const url = newVideoUrl.trim();
+    if (!url) return;
+    const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=|shorts\/))([\w-]{11})/) || (url.length === 11 ? [, url] : null);
+    if (match && match[1]) {
+      setIsFetchingMeta(true);
+      try {
+        const res = await fetch(`https://noembed.com/embed?url=https://www.youtube.com/watch?v=${match[1]}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.title && !newTitle.trim()) {
+            setNewTitle(data.title);
+          }
+          if (data.author_name && !newChannel.trim()) {
+            setNewChannel(data.author_name);
+          }
+        }
+      } catch {}
+      setIsFetchingMeta(false);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -280,13 +304,19 @@ export const PageBuilderModal: React.FC<PageBuilderModalProps> = ({
               </div>
 
               <div>
-                <label className="block text-[11px] font-semibold text-neutral-400 uppercase tracking-wider mb-1">
-                  Video URL or YouTube Link (Optional)
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-[11px] font-semibold text-neutral-400 uppercase tracking-wider">
+                    Video URL or YouTube Link (Optional)
+                  </label>
+                  {isFetchingMeta && (
+                    <span className="text-[10px] text-rose-400 animate-pulse font-mono">Fetching video info...</span>
+                  )}
+                </div>
                 <input
                   type="text"
                   value={newVideoUrl}
                   onChange={(e) => setNewVideoUrl(e.target.value)}
+                  onBlur={handleUrlBlur}
                   placeholder="https://youtube.com/watch?v=... or direct MP4 link (or leave empty for procedural stream)"
                   className={`w-full h-8 px-3 font-mono text-[11px] rounded-md border outline-none ${
                     isDarkMode ? 'bg-neutral-900 border-white/10 text-white focus:border-rose-500' : 'bg-neutral-50 border-black/10 text-neutral-900 focus:border-rose-500'

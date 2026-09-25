@@ -1,10 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   Play, 
   DownloadCloud, 
   Check, 
   Share2, 
-  Monitor, 
   Clock, 
   Building2, 
   Cpu, 
@@ -14,7 +13,8 @@ import {
   Atom, 
   Type, 
   CloudRain,
-  ShieldCheck
+  ShieldCheck,
+  Youtube
 } from 'lucide-react';
 import { Video } from '../types';
 
@@ -39,6 +39,12 @@ export const FrontPageGrid: React.FC<FrontPageGridProps> = ({
   isDarkMode,
   title = 'Front Page Feed'
 }) => {
+  const [imageErrors, setImageErrors] = useState<Record<string, boolean>>({});
+
+  const handleImageError = (id: string) => {
+    setImageErrors(prev => ({ ...prev, [id]: true }));
+  };
+
   const renderIcon = (iconName: string) => {
     switch (iconName) {
       case 'building': return <Building2 className="w-8 h-8 text-neutral-400 stroke-1" />;
@@ -59,7 +65,7 @@ export const FrontPageGrid: React.FC<FrontPageGridProps> = ({
         isDarkMode ? 'bg-white/[0.02] border-white/10 text-neutral-400' : 'bg-black/[0.02] border-black/10 text-neutral-500'
       }`}>
         <div className="text-sm font-semibold">No videos found</div>
-        <p className="text-xs">Try clearing the search query or selecting a different category filter.</p>
+        <p className="text-xs">Try clearing the search query, selecting a different category filter, or pasting any YouTube link in the search bar above.</p>
       </div>
     );
   }
@@ -80,6 +86,8 @@ export const FrontPageGrid: React.FC<FrontPageGridProps> = ({
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {videos.map((vid) => {
           const isActive = vid.id === activeVideoId;
+          const hasImageError = imageErrors[vid.id];
+          const hasYtThumb = vid.youtubeId && !hasImageError;
 
           return (
             <div
@@ -97,22 +105,42 @@ export const FrontPageGrid: React.FC<FrontPageGridProps> = ({
             >
               {/* Thumbnail Container */}
               <div className="relative aspect-video w-full bg-neutral-900 overflow-hidden">
-                {/* Styled Procedural Graphic Fallback Frame */}
-                <div className={`absolute inset-0 bg-gradient-to-br ${vid.thumbnailGradient} flex items-center justify-center transition-transform duration-300 group-hover:scale-105`}>
-                  <div className="opacity-40 group-hover:opacity-60 transition-opacity">
-                    {renderIcon(vid.previewSvgIcon)}
+                {hasYtThumb ? (
+                  <img
+                    src={`https://img.youtube.com/vi/${vid.youtubeId}/hqdefault.jpg`}
+                    alt={vid.title}
+                    onError={() => handleImageError(vid.id)}
+                    className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                    loading="lazy"
+                  />
+                ) : (
+                  /* Styled Procedural Graphic Fallback Frame */
+                  <div className={`absolute inset-0 bg-gradient-to-br ${vid.thumbnailGradient} flex items-center justify-center transition-transform duration-300 group-hover:scale-105`}>
+                    <div className="opacity-40 group-hover:opacity-60 transition-opacity">
+                      {renderIcon(vid.previewSvgIcon)}
+                    </div>
+                    {/* Subtle technical grid overlay */}
+                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.06)_1px,transparent_1px)] bg-[size:12px_12px] opacity-40 pointer-events-none" />
                   </div>
-                  {/* Subtle technical grid overlay */}
-                  <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.06)_1px,transparent_1px)] bg-[size:12px_12px] opacity-40 pointer-events-none" />
-                </div>
+                )}
 
                 {/* Duration Badge */}
-                <div className="absolute bottom-2 right-2 px-1.5 py-0.5 rounded bg-black/80 text-white text-[10px] font-mono font-medium backdrop-blur-sm">
+                <div className="absolute bottom-2 right-2 px-1.5 py-0.5 rounded bg-black/85 text-white text-[10px] font-mono font-medium backdrop-blur-sm">
                   {vid.duration}
                 </div>
 
-                {/* Top Status Indicators (Offline ready, Active Now, Resolution) */}
+                {/* Top Status Indicators (Offline ready, Active Now, YouTube) */}
                 <div className="absolute top-2 left-2 flex items-center gap-1.5">
+                  {vid.youtubeId && (
+                    <div 
+                      className="px-1.5 py-0.5 rounded bg-black/80 border border-white/20 text-rose-400 text-[10px] font-mono flex items-center gap-1 backdrop-blur-md"
+                      title="YouTube Stream"
+                    >
+                      <Youtube className="w-2.5 h-2.5 fill-rose-500" />
+                      <span>YT</span>
+                    </div>
+                  )}
+
                   {vid.isOffline && (
                     <div 
                       className="px-1.5 py-0.5 rounded bg-amber-950/85 border border-amber-500/40 text-amber-300 text-[10px] font-mono flex items-center gap-1 backdrop-blur-md"
@@ -180,18 +208,14 @@ export const FrontPageGrid: React.FC<FrontPageGridProps> = ({
                     {vid.title}
                   </h3>
 
-                  <div className="text-[11px] text-neutral-400 flex items-center gap-1.5">
-                    <span className="font-medium text-neutral-300">{vid.channel}</span>
+                  <div className="flex items-center gap-2 text-[11px] text-neutral-400">
+                    <span className="font-medium truncate">{vid.channel}</span>
                   </div>
                 </div>
 
-                {/* Zero-Pill Unboxed Metadata per Design Constitution */}
-                <div className="pt-2 border-t border-white/[0.06] flex items-center gap-1.5 text-[11px] text-neutral-500 font-mono">
+                <div className="flex items-center justify-between text-[10px] font-mono text-neutral-400 pt-1 border-t border-white/[0.05]">
                   <span>{vid.views}</span>
-                  <span aria-hidden="true">·</span>
                   <span>{vid.publishedDate}</span>
-                  <span aria-hidden="true">·</span>
-                  <span>{vid.resolution.split(' ')[0]}</span>
                 </div>
               </div>
             </div>

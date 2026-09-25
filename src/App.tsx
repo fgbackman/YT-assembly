@@ -116,13 +116,15 @@ export default function App() {
 
   // Video catalog & Active stream
   const [videos, setVideos] = useState<Video[]>(() => {
-    const saved = localStorage.getItem('assembly_cached_videos');
+    const saved = localStorage.getItem('assembly_cached_videos_v3');
     if (saved) {
       try {
-        return JSON.parse(saved);
-      } catch {
-        return INITIAL_VIDEOS;
-      }
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const hasBroken = parsed.some((v: any) => v.videoUrl && v.videoUrl.includes('commondatastorage.googleapis.com'));
+          if (!hasBroken) return parsed;
+        }
+      } catch {}
     }
     return INITIAL_VIDEOS;
   });
@@ -193,7 +195,7 @@ export default function App() {
 
   // Persist videos
   useEffect(() => {
-    localStorage.setItem('assembly_cached_videos', JSON.stringify(videos));
+    localStorage.setItem('assembly_cached_videos_v3', JSON.stringify(videos));
   }, [videos]);
 
   // Persist page sections
@@ -277,6 +279,102 @@ export default function App() {
   const handleResetSections = useCallback(() => {
     setSections(DEFAULT_SECTIONS);
   }, []);
+
+  // Quick load YouTube video from search bar or external link
+  const handleLoadCustomYouTube = useCallback(async (urlOrId: string) => {
+    const trimmed = urlOrId.trim();
+    if (!trimmed) return;
+
+    let ytId: string | null = null;
+    if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) {
+      ytId = trimmed;
+    } else {
+      const match = trimmed.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=|shorts\/))([\w-]{11})/);
+      if (match && match[1]) ytId = match[1];
+    }
+
+    if (!ytId) return;
+
+    // Check if video is already in the list
+    const existing = videos.find(v => v.youtubeId === ytId);
+    if (existing) {
+      setActiveVideo(existing);
+      setInitialSeekTime(0);
+      setSearchQuery('');
+      const stage = document.getElementById('assembly-stage-top');
+      stage?.scrollIntoView({ behavior: 'smooth' });
+      return;
+    }
+
+    // Attempt to fetch title and creator from noembed oembed endpoint
+    let title = `YouTube Stream (${ytId})`;
+    let channel = 'YouTube Creator';
+
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 2000);
+      const res = await fetch(`https://noembed.com/embed?url=https://www.youtube.com/watch?v=${ytId}`, { signal: controller.signal });
+      clearTimeout(timer);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.title) title = data.title;
+        if (data.author_name) channel = data.author_name;
+      }
+    } catch {}
+
+    const newVideo: Video = {
+      id: `yt-${ytId}-${Date.now()}`,
+      title,
+      channel,
+      channelAvatar: channel.slice(0, 2).toUpperCase() || 'YT',
+      subscribers: 'Official',
+      views: 'Streaming Now',
+      viewCount: 125000,
+      publishedDate: 'Just now',
+      duration: '10:00',
+      durationSeconds: 600,
+      description: `Live YouTube stream loaded into Assembly Cocoa Player. Video ID: ${ytId}`,
+      category: 'Tech',
+      tags: ['YouTube', 'Stream', 'Assembly'],
+      videoUrl: 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4',
+      youtubeId: ytId,
+      thumbnailGradient: 'from-rose-950 via-zinc-900 to-black',
+      previewSvgIcon: 'atom',
+      resolution: '4K Ultra 60fps',
+      fps: 60,
+      isLiked: false,
+      likeCount: 1,
+      isOffline: false,
+      sponsorsSegments: [],
+    };
+
+    setVideos(prev => [newVideo, ...prev]);
+    setActiveVideo(newVideo);
+    setInitialSeekTime(0);
+    setSearchQuery('');
+    const stage = document.getElementById('assembly-stage-top');
+    stage?.scrollIntoView({ behavior: 'smooth' });
+  }, [videos]);
+
+  // Check URL query parameters on initial load (?v=... or ?yt=... or ?t=...)
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const videoParam = params.get('v') || params.get('yt');
+      const timeParam = params.get('t');
+
+      if (videoParam) {
+        const found = videos.find(v => v.id === videoParam || v.youtubeId === videoParam);
+        if (found) {
+          setActiveVideo(found);
+          if (timeParam) setInitialSeekTime(parseFloat(timeParam) || 0);
+        } else if (/^[a-zA-Z0-9_-]{11}$/.test(videoParam)) {
+          handleLoadCustomYouTube(videoParam);
+          if (timeParam) setInitialSeekTime(parseFloat(timeParam) || 0);
+        }
+      }
+    } catch {}
+  }, [handleLoadCustomYouTube, videos]);
 
   // Add custom video handler
   const handleAddCustomVideo = useCallback((newVid: CustomVideoInput) => {
@@ -588,6 +686,7 @@ export default function App() {
                 totalResults={filteredVideos.length}
                 isOfflineMode={isOfflineMode}
                 onToggleOfflineOnly={handleToggleOfflineMode}
+                onLoadCustomYouTube={handleLoadCustomYouTube}
               />
             </section>
           )}
