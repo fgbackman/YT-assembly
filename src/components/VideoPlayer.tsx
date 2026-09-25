@@ -38,6 +38,8 @@ interface VideoPlayerProps {
   onOpenPageBuilder?: () => void;
   upNextVideos?: Video[];
   onSelectVideo?: (video: Video) => void;
+  // Fired when the YouTube embed switches to a different video on its own (e.g. a suggestion clicked inside it)
+  onEmbedVideoChange?: (info: { youtubeId: string; title: string; channel: string; durationSeconds: number }) => void;
 }
 
 export type PlaybackEngine = 'html5_mp4' | 'youtube_embed' | 'procedural_assembly';
@@ -57,6 +59,7 @@ export const VideoPlayer = memo<VideoPlayerProps>(function VideoPlayer({
   onOpenPageBuilder,
   upNextVideos = [],
   onSelectVideo,
+  onEmbedVideoChange,
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -124,6 +127,10 @@ export const VideoPlayer = memo<VideoPlayerProps>(function VideoPlayer({
     iframeRef.current?.contentWindow?.postMessage(JSON.stringify({ ...msg, id: video.id, channel: 'widget' }), '*');
   }, [video.id]);
 
+  const embedYoutubeId = video.youtubeId || 'kJQP7kiw5Fk';
+  const onEmbedVideoChangeRef = useRef(onEmbedVideoChange);
+  onEmbedVideoChangeRef.current = onEmbedVideoChange;
+
   // Track the YouTube embed's state so its own "More videos" / end screen
   // (whose links open youtube.com) can be covered with an in-app overlay.
   useEffect(() => {
@@ -142,6 +149,17 @@ export const VideoPlayer = memo<VideoPlayerProps>(function VideoPlayer({
       } else if (data?.event === 'infoDelivery' && typeof data.info?.playerState === 'number') {
         setYtState(data.info.playerState);
       }
+
+      // A video opened from inside the embed becomes the app's active video
+      const videoData = data?.info?.videoData;
+      if (videoData?.video_id && videoData.video_id !== embedYoutubeId) {
+        onEmbedVideoChangeRef.current?.({
+          youtubeId: videoData.video_id,
+          title: videoData.title || '',
+          channel: videoData.author || '',
+          durationSeconds: Math.round(Number(data.info.duration) || 0),
+        });
+      }
     };
 
     window.addEventListener('message', handleMessage);
@@ -153,7 +171,7 @@ export const VideoPlayer = memo<VideoPlayerProps>(function VideoPlayer({
       window.removeEventListener('message', handleMessage);
       clearInterval(handshake);
     };
-  }, [engine, video.id, postToYt]);
+  }, [engine, video.id, postToYt, embedYoutubeId]);
 
   const handleIframeLoad = () => {
     // Ask the embed to start sending state events to this window
@@ -351,7 +369,7 @@ export const VideoPlayer = memo<VideoPlayerProps>(function VideoPlayer({
           <iframe
             ref={iframeRef}
             key={video.id}
-            src={`https://www.youtube-nocookie.com/embed/${video.youtubeId || 'kJQP7kiw5Fk'}?autoplay=1&mute=0&controls=1&rel=0&modestbranding=1&enablejsapi=1&origin=${encodeURIComponent(window.location.origin)}`}
+            src={`https://www.youtube-nocookie.com/embed/${embedYoutubeId}?autoplay=1&mute=0&controls=1&rel=0&modestbranding=1&enablejsapi=1&origin=${encodeURIComponent(window.location.origin)}`}
             title={video.title}
             className="w-full h-full border-0"
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
