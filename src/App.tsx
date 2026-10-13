@@ -143,6 +143,51 @@ const toYouTubeVideo = (r: YouTubeSearchResult): Video => ({
   sponsorsSegments: [],
 });
 
+// localStorage outlives deploys, so data saved by an older version may be missing
+// fields the UI now relies on. Anything unusable falls back to defaults instead of
+// crashing the whole app on load.
+const loadSavedVideos = (): Video[] => {
+  try {
+    const saved = JSON.parse(localStorage.getItem('assembly_cached_videos') ?? 'null');
+    if (!Array.isArray(saved)) return INITIAL_VIDEOS;
+    const { source, thumbnailUrl, youtubeId, ...defaults } = toYouTubeVideo({
+      youtubeId: '', title: 'Untitled stream', channel: '', description: '',
+      duration: '', views: '', publishedDate: '', thumbnailUrl: '',
+    });
+    const videos = saved
+      .filter((v: any) => v && typeof v === 'object' && typeof v.id === 'string')
+      .map((v: any): Video => ({
+        ...defaults,
+        ...(INITIAL_VIDEOS.find(i => i.id === v.id) ?? {}),
+        ...v,
+        tags: Array.isArray(v.tags) ? v.tags : [],
+        sponsorsSegments: Array.isArray(v.sponsorsSegments) ? v.sponsorsSegments : [],
+      }));
+    return videos.length ? videos : INITIAL_VIDEOS;
+  } catch {
+    return INITIAL_VIDEOS;
+  }
+};
+
+const loadSavedSections = (): PageSectionConfig[] => {
+  try {
+    const saved = JSON.parse(localStorage.getItem('assembly_page_sections') ?? 'null');
+    if (!Array.isArray(saved)) return DEFAULT_SECTIONS;
+    // Keep the user's visibility/order choices, but always include every current section
+    return DEFAULT_SECTIONS.map(def => {
+      const s = saved.find((x: any) => x?.id === def.id);
+      if (!s) return def;
+      return {
+        ...def,
+        visible: typeof s.visible === 'boolean' ? s.visible : def.visible,
+        order: Number.isFinite(s.order) ? s.order : def.order,
+      };
+    });
+  } catch {
+    return DEFAULT_SECTIONS;
+  }
+};
+
 export default function App() {
   // Theme state
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
@@ -159,26 +204,10 @@ export default function App() {
   const [activeLayoutMode, setActiveLayoutMode] = useState<'standard' | 'theater' | 'compact'>('standard');
 
   // Page Builder section state
-  const [sections, setSections] = useState<PageSectionConfig[]>(() => {
-    try {
-      const saved = localStorage.getItem('assembly_page_sections');
-      if (saved) {
-        return JSON.parse(saved);
-      }
-    } catch {}
-    return DEFAULT_SECTIONS;
-  });
+  const [sections, setSections] = useState<PageSectionConfig[]>(loadSavedSections);
 
   // Video catalog & Active stream
-  const [videos, setVideos] = useState<Video[]>(() => {
-    try {
-      const saved = localStorage.getItem('assembly_cached_videos');
-      if (saved) {
-        return JSON.parse(saved);
-      }
-    } catch {}
-    return INITIAL_VIDEOS;
-  });
+  const [videos, setVideos] = useState<Video[]>(loadSavedVideos);
 
   const [activeVideo, setActiveVideo] = useState<Video>(INITIAL_VIDEOS[0]);
   const [currentTime, setCurrentTime] = useState<number>(0);
